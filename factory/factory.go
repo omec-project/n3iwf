@@ -1,23 +1,23 @@
-/*
- * N3IWF Configuration Factory
- */
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
 
 package factory
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 
+	"github.com/omec-project/n3iwf/logger"
 	"gopkg.in/yaml.v2"
-
-	"github.com/free5gc/n3iwf/logger"
 )
 
 var N3iwfConfig Config
 
 // TODO: Support configuration update from REST api
 func InitConfigFactory(f string) error {
-	if content, err := ioutil.ReadFile(f); err != nil {
+	if content, err := os.ReadFile(f); err != nil {
 		return err
 	} else {
 		N3iwfConfig = Config{}
@@ -34,7 +34,7 @@ func CheckConfigVersion() error {
 	currentVersion := N3iwfConfig.GetVersion()
 
 	if currentVersion != N3IWF_EXPECTED_CONFIG_VERSION {
-		return fmt.Errorf("config version is [%s], but expected is [%s].",
+		return fmt.Errorf("config version is [%s], but expected is [%s]",
 			currentVersion, N3IWF_EXPECTED_CONFIG_VERSION)
 	}
 

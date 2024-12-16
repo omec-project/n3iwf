@@ -1,71 +1,81 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package logger
 
 import (
-	"os"
-	"time"
-
-	formatter "github.com/antonfisher/nested-logrus-formatter"
-	"github.com/sirupsen/logrus"
-
-	"github.com/free5gc/logger_conf"
-	"github.com/free5gc/logger_util"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-var log *logrus.Logger
-
 var (
-	AppLog     *logrus.Entry
-	InitLog    *logrus.Entry
-	CfgLog     *logrus.Entry
-	ContextLog *logrus.Entry
-	NgapLog    *logrus.Entry
-	IKELog     *logrus.Entry
-	GTPLog     *logrus.Entry
-	NWuCPLog   *logrus.Entry
-	NWuUPLog   *logrus.Entry
-	RelayLog   *logrus.Entry
-	UtilLog    *logrus.Entry
+	log         *zap.Logger
+	AppLog      *zap.SugaredLogger
+	InitLog     *zap.SugaredLogger
+	CfgLog      *zap.SugaredLogger
+	ContextLog  *zap.SugaredLogger
+	NgapLog     *zap.SugaredLogger
+	IKELog      *zap.SugaredLogger
+	GTPLog      *zap.SugaredLogger
+	NWuCPLog    *zap.SugaredLogger
+	NWuUPLog    *zap.SugaredLogger
+	RelayLog    *zap.SugaredLogger
+	UtilLog     *zap.SugaredLogger
+	atomicLevel zap.AtomicLevel
 )
 
 func init() {
-	log = logrus.New()
-	log.SetReportCaller(false)
-
-	log.Formatter = &formatter.Formatter{
-		TimestampFormat: time.RFC3339,
-		TrimMessages:    true,
-		NoFieldsSpace:   true,
-		HideKeys:        true,
-		FieldsOrder:     []string{"component", "category"},
+	atomicLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
+	config := zap.Config{
+		Level:            atomicLevel,
+		Development:      false,
+		Encoding:         "console",
+		EncoderConfig:    zap.NewProductionEncoderConfig(),
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stderr"},
 	}
 
-	free5gcLogHook, err := logger_util.NewFileHook(logger_conf.Free5gcLogFile, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o666)
-	if err == nil {
-		log.Hooks.Add(free5gcLogHook)
+	config.EncoderConfig.TimeKey = "timestamp"
+	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	config.EncoderConfig.LevelKey = "level"
+	config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	config.EncoderConfig.CallerKey = "caller"
+	config.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	config.EncoderConfig.MessageKey = "message"
+	config.EncoderConfig.StacktraceKey = ""
+
+	var err error
+	log, err = config.Build()
+	if err != nil {
+		panic(err)
 	}
 
-	selfLogHook, err := logger_util.NewFileHook(logger_conf.NfLogDir+"n3iwf.log", os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o666)
-	if err == nil {
-		log.Hooks.Add(selfLogHook)
-	}
-
-	AppLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "App"})
-	InitLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "Init"})
-	CfgLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "CFG"})
-	ContextLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "Context"})
-	NgapLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "NGAP"})
-	IKELog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "IKE"})
-	GTPLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "GTP"})
-	NWuCPLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "NWuCP"})
-	NWuUPLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "NWuUP"})
-	RelayLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "Relay"})
-	UtilLog = log.WithFields(logrus.Fields{"component": "N3IWF", "category": "Util"})
+	AppLog = log.Sugar().With("component", "N3IWF", "category", "App")
+	InitLog = log.Sugar().With("component", "N3IWF", "category", "Init")
+	CfgLog = log.Sugar().With("component", "N3IWF", "category", "CFG")
+	ContextLog = log.Sugar().With("component", "N3IWF", "category", "Context")
+	NgapLog = log.Sugar().With("component", "N3IWF", "category", "NGAP")
+	IKELog = log.Sugar().With("component", "N3IWF", "category", "IKE")
+	GTPLog = log.Sugar().With("component", "N3IWF", "category", "GTP")
+	NWuCPLog = log.Sugar().With("component", "N3IWF", "category", "NWuCP")
+	NWuUPLog = log.Sugar().With("component", "N3IWF", "category", "NWuUP")
+	RelayLog = log.Sugar().With("component", "N3IWF", "category", "Relay")
+	UtilLog = log.Sugar().With("component", "N3IWF", "category", "Util")
 }
 
-func SetLogLevel(level logrus.Level) {
-	log.SetLevel(level)
+func GetLogger() *zap.Logger {
+	return log
 }
 
-func SetReportCaller(set bool) {
-	log.SetReportCaller(set)
+// SetLogLevel: set the log level (panic|fatal|error|warn|info|debug)
+func SetLogLevel(level zapcore.Level) {
+	InitLog.Infoln("set log level:", level)
+	atomicLevel.SetLevel(level)
 }

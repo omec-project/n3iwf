@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
@@ -7,18 +12,10 @@ import (
 	"net"
 	"strings"
 
-	"github.com/sirupsen/logrus"
-
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/logger"
-	"github.com/free5gc/n3iwf/ngap/message"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/ngap/message"
 )
-
-var nwucpLog *logrus.Entry
-
-func init() {
-	nwucpLog = logger.NWuCPLog
-}
 
 // Run setup N3IWF NAS for UE to forward NAS message
 // to AMF
@@ -29,11 +26,11 @@ func Run() error {
 
 	tcpListener, err := net.Listen("tcp", tcpAddr)
 	if err != nil {
-		nwucpLog.Errorf("Listen TCP address failed: %+v", err)
-		return errors.New("Listen failed")
+		logger.NWuCPLog.Errorf("listen TCP address failed: %+v", err)
+		return errors.New("listen failed")
 	}
 
-	nwucpLog.Tracef("Successfully listen %+v", tcpAddr)
+	logger.NWuCPLog.Debugf("successfully listen %+v", tcpAddr)
 
 	go listenAndServe(tcpListener)
 
@@ -48,18 +45,18 @@ func listenAndServe(tcpListener net.Listener) {
 	defer func() {
 		err := tcpListener.Close()
 		if err != nil {
-			nwucpLog.Errorf("Error closing tcpListener: %+v", err)
+			logger.NWuCPLog.Errorf("error closing tcpListener: %+v", err)
 		}
 	}()
 
 	for {
 		connection, err := tcpListener.Accept()
 		if err != nil {
-			nwucpLog.Error("TCP server accept failed. Close the listener...")
+			logger.NWuCPLog.Errorln("TCP server accept failed. Close the listener")
 			return
 		}
 
-		nwucpLog.Tracef("Accepted one UE from %+v", connection.RemoteAddr())
+		logger.NWuCPLog.Debugf("accepted one UE from %+v", connection.RemoteAddr())
 
 		// Find UE context and store this connection in to it, then check if
 		// there is any cached NAS message for this UE. If yes, send to it.
@@ -68,7 +65,7 @@ func listenAndServe(tcpListener net.Listener) {
 		ueIP := strings.Split(connection.RemoteAddr().String(), ":")[0]
 		ue, ok := n3iwfSelf.AllocatedUEIPAddressLoad(ueIP)
 		if !ok {
-			nwucpLog.Errorf("UE context not found for peer %+v", ueIP)
+			logger.NWuCPLog.Errorf("UE context not found for peer %+v", ueIP)
 			continue
 		}
 
@@ -78,10 +75,10 @@ func listenAndServe(tcpListener net.Listener) {
 		if ue.TemporaryCachedNASMessage != nil {
 			// Send to UE
 			if n, err := connection.Write(ue.TemporaryCachedNASMessage); err != nil {
-				nwucpLog.Errorf("Writing via IPSec signalling SA failed: %+v", err)
+				logger.NWuCPLog.Errorf("writing via IPSec signalling SA failed: %+v", err)
 			} else {
-				nwucpLog.Trace("Forward NWu <- N2")
-				nwucpLog.Tracef("Wrote %d bytes", n)
+				logger.NWuCPLog.Debugln("forward NWu <- N2")
+				logger.NWuCPLog.Debugf("wrote %d bytes", n)
 			}
 			// Clean the cached message
 			ue.TemporaryCachedNASMessage = nil
@@ -98,7 +95,7 @@ func serveConn(ue *context.N3IWFUe, connection net.Conn) {
 	defer func() {
 		err := connection.Close()
 		if err != nil {
-			nwucpLog.Errorf("Error closing connection: %+v", err)
+			logger.NWuCPLog.Errorf("error closing connection: %+v", err)
 		}
 	}()
 
@@ -107,14 +104,14 @@ func serveConn(ue *context.N3IWFUe, connection net.Conn) {
 		n, err := connection.Read(data)
 		if err != nil {
 			if err.Error() == "EOF" {
-				nwucpLog.Warn("Connection close by peer")
+				logger.NWuCPLog.Warnln("connection close by peer")
 				ue.TCPConnection = nil
 				return
 			} else {
-				nwucpLog.Errorf("Read TCP connection failed: %+v", err)
+				logger.NWuCPLog.Errorf("read TCP connection failed: %+v", err)
 			}
 		}
-		nwucpLog.Tracef("Get NAS PDU from UE:\nNAS length: %d\nNAS content:\n%s", n, hex.Dump(data[:n]))
+		logger.NWuCPLog.Debugf("get NAS PDU from UE: NAS length: %d, NAS content: %s", n, hex.Dump(data[:n]))
 
 		forwardData := make([]byte, n)
 		copy(forwardData, data[:n])
@@ -126,6 +123,6 @@ func serveConn(ue *context.N3IWFUe, connection net.Conn) {
 // forward forwards NAS messages sent from UE to the
 // associated AMF
 func forward(ue *context.N3IWFUe, packet []byte) {
-	nwucpLog.Trace("Forward NWu -> N2")
+	logger.NWuCPLog.Debugln("forward NWu -> N2")
 	message.SendUplinkNASTransport(ue.AMF, ue, packet)
 }

@@ -1,34 +1,30 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
 	"errors"
 	"net"
 
-	"github.com/sirupsen/logrus"
-
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/ike"
-	"github.com/free5gc/n3iwf/logger"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/ike"
+	"github.com/omec-project/n3iwf/logger"
 )
-
-var ikeLog *logrus.Entry
-
-func init() {
-	// init logger
-	ikeLog = logger.IKELog
-}
 
 func Run() error {
 	// Resolve UDP addresses
 	ip := context.N3IWFSelf().IKEBindAddress
 	udpAddrPort500, err := net.ResolveUDPAddr("udp", ip+":500")
 	if err != nil {
-		ikeLog.Errorf("Resolve UDP address failed: %+v", err)
+		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
 		return errors.New("IKE service run failed")
 	}
 	udpAddrPort4500, err := net.ResolveUDPAddr("udp", ip+":4500")
 	if err != nil {
-		ikeLog.Errorf("Resolve UDP address failed: %+v", err)
+		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
 		return errors.New("IKE service run failed")
 	}
 
@@ -39,7 +35,7 @@ func Run() error {
 	errChan = make(chan error)
 	go listenAndServe(udpAddrPort500, errChan)
 	if err, ok := <-errChan; ok {
-		ikeLog.Errorln(err)
+		logger.IKELog.Errorln(err)
 		return errors.New("IKE service run failed")
 	}
 
@@ -47,7 +43,7 @@ func Run() error {
 	errChan = make(chan error)
 	go listenAndServe(udpAddrPort4500, errChan)
 	if err, ok := <-errChan; ok {
-		ikeLog.Errorln(err)
+		logger.IKELog.Errorln(err)
 		return errors.New("IKE service run failed")
 	}
 
@@ -57,7 +53,7 @@ func Run() error {
 func listenAndServe(localAddr *net.UDPAddr, errChan chan<- error) {
 	listener, err := net.ListenUDP("udp", localAddr)
 	if err != nil {
-		ikeLog.Errorf("Listen UDP failed: %+v", err)
+		logger.IKELog.Errorf("listen UDP failed: %+v", err)
 		errChan <- errors.New("listenAndServe failed")
 		return
 	}
@@ -69,7 +65,7 @@ func listenAndServe(localAddr *net.UDPAddr, errChan chan<- error) {
 	for {
 		n, remoteAddr, err := listener.ReadFromUDP(data)
 		if err != nil {
-			ikeLog.Errorf("ReadFromUDP failed: %+v", err)
+			logger.IKELog.Errorf("readFromUDP failed: %+v", err)
 			continue
 		}
 

@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package context
 
 import (
@@ -6,10 +11,9 @@ import (
 	"fmt"
 	"net"
 
+	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/ngap/ngapType"
 	gtpv1 "github.com/wmnsk/go-gtp/v1"
-
-	ike_message "github.com/free5gc/n3iwf/ike/message"
-	"github.com/free5gc/ngap/ngapType"
 )
 
 const (
@@ -238,7 +242,8 @@ func (ue *N3IWFUe) CreatePDUSession(pduSessionID int64, snssai ngapType.SNSSAI) 
 }
 
 func (ue *N3IWFUe) CreateIKEChildSecurityAssociation(
-	chosenSecurityAssociation *ike_message.SecurityAssociation) (*ChildSecurityAssociation, error) {
+	chosenSecurityAssociation *ike_message.SecurityAssociation,
+) (*ChildSecurityAssociation, error) {
 	childSecurityAssociation := new(ChildSecurityAssociation)
 
 	if chosenSecurityAssociation == nil {
@@ -246,18 +251,16 @@ func (ue *N3IWFUe) CreateIKEChildSecurityAssociation(
 	}
 
 	if len(chosenSecurityAssociation.Proposals) == 0 {
-		return nil, errors.New("No proposal")
+		return nil, errors.New("no proposal")
 	}
 
 	childSecurityAssociation.SPI = binary.BigEndian.Uint32(chosenSecurityAssociation.Proposals[0].SPI)
 
 	if len(chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm) != 0 {
-		childSecurityAssociation.EncryptionAlgorithm =
-			chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm[0].TransformID
+		childSecurityAssociation.EncryptionAlgorithm = chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm[0].TransformID
 	}
 	if len(chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm) != 0 {
-		childSecurityAssociation.IntegrityAlgorithm =
-			chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm[0].TransformID
+		childSecurityAssociation.IntegrityAlgorithm = chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm[0].TransformID
 	}
 	if len(chosenSecurityAssociation.Proposals[0].ExtendedSequenceNumbers) != 0 {
 		if chosenSecurityAssociation.Proposals[0].ExtendedSequenceNumbers[0].TransformID == 0 {

@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
@@ -5,18 +10,10 @@ import (
 	"errors"
 	"net"
 
-	"github.com/sirupsen/logrus"
+	n3iwf_context "github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/logger"
 	gtpv1 "github.com/wmnsk/go-gtp/v1"
-
-	n3iwf_context "github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/logger"
 )
-
-var gtpLog *logrus.Entry
-
-func init() {
-	gtpLog = logger.GTPLog
-}
 
 // SetupGTPTunnelWithUPF set up GTP connection with UPF
 // return *gtpv1.UPlaneConn, net.Addr and error
@@ -28,16 +25,16 @@ func SetupGTPTunnelWithUPF(upfIPAddr string) (*gtpv1.UPlaneConn, net.Addr, error
 
 	remoteUDPAddr, err := net.ResolveUDPAddr("udp", upfUDPAddr)
 	if err != nil {
-		gtpLog.Errorf("Resolve UDP address %s failed: %+v", upfUDPAddr, err)
-		return nil, nil, errors.New("Resolve Address Failed")
+		logger.GTPLog.Errorf("resolve UDP address %s failed: %+v", upfUDPAddr, err)
+		return nil, nil, errors.New("resolve Address Failed")
 	}
 
 	n3iwfUDPAddr := n3iwfSelf.GTPBindAddress + ":2152"
 
 	localUDPAddr, err := net.ResolveUDPAddr("udp", n3iwfUDPAddr)
 	if err != nil {
-		gtpLog.Errorf("Resolve UDP address %s failed: %+v", n3iwfUDPAddr, err)
-		return nil, nil, errors.New("Resolve Address Failed")
+		logger.GTPLog.Errorf("resolve UDP address %s failed: %+v", n3iwfUDPAddr, err)
+		return nil, nil, errors.New("resolve Address Failed")
 	}
 
 	context := context.TODO()
@@ -45,8 +42,8 @@ func SetupGTPTunnelWithUPF(upfIPAddr string) (*gtpv1.UPlaneConn, net.Addr, error
 	// Dial to UPF
 	userPlaneConnection, err := gtpv1.DialUPlane(context, localUDPAddr, remoteUDPAddr)
 	if err != nil {
-		gtpLog.Errorf("Dial to UPF failed: %+v", err)
-		return nil, nil, errors.New("Dial failed")
+		logger.GTPLog.Errorf("dial to UPF failed: %+v", err)
+		return nil, nil, errors.New("dial failed")
 	}
 
 	return userPlaneConnection, remoteUDPAddr, nil
@@ -66,7 +63,7 @@ func listenGTP(userPlaneConnection *gtpv1.UPlaneConn) {
 	defer func() {
 		err := userPlaneConnection.Close()
 		if err != nil {
-			gtpLog.Errorf("userPlaneConnection Close failed: %+v", err)
+			logger.GTPLog.Errorf("userPlaneConnection Close failed: %+v", err)
 		}
 	}()
 
@@ -74,9 +71,9 @@ func listenGTP(userPlaneConnection *gtpv1.UPlaneConn) {
 
 	for {
 		n, _, teid, err := userPlaneConnection.ReadFromGTP(payload)
-		gtpLog.Tracef("Read %d bytes", n)
+		logger.GTPLog.Debugf("read %d bytes", n)
 		if err != nil {
-			gtpLog.Errorf("Read from GTP failed: %+v", err)
+			logger.GTPLog.Errorf("read from GTP failed: %+v", err)
 			return
 		}
 
@@ -97,7 +94,7 @@ func forward(ueTEID uint32, packet []byte) {
 	// Find UE information
 	ue, ok := self.AllocatedUETEIDLoad(ueTEID)
 	if !ok {
-		gtpLog.Error("UE context not found")
+		logger.GTPLog.Errorln("UE context not found")
 		return
 	}
 	// UE IP
@@ -110,10 +107,10 @@ func forward(ueTEID uint32, packet []byte) {
 
 	// Send to UE
 	if n, err := ipv4PacketConn.WriteTo(greEncapsulatedPacket, nil, ueInnerIPAddr); err != nil {
-		gtpLog.Errorf("Write to UE failed: %+v", err)
+		logger.GTPLog.Errorf("write to UE failed: %+v", err)
 		return
 	} else {
-		gtpLog.Trace("Forward NWu <- N3")
-		gtpLog.Tracef("Wrote %d bytes", n)
+		logger.GTPLog.Debugln("forward NWu <- N3")
+		logger.GTPLog.Debugf("wrote %d bytes", n)
 	}
 }

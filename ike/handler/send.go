@@ -1,17 +1,23 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package handler
 
 import (
 	"net"
 
-	ike_message "github.com/free5gc/n3iwf/ike/message"
+	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/logger"
 )
 
 func SendIKEMessageToUE(udpConn *net.UDPConn, srcAddr, dstAddr *net.UDPAddr, message *ike_message.IKEMessage) {
-	ikeLog.Trace("Send IKE message to UE")
-	ikeLog.Trace("Encoding...")
+	logger.IKELog.Debugln("send IKE message to UE")
+	logger.IKELog.Debugln("encoding...")
 	pkt, err := message.Encode()
 	if err != nil {
-		ikeLog.Errorln(err)
+		logger.IKELog.Errorln(err)
 		return
 	}
 	// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
@@ -21,14 +27,14 @@ func SendIKEMessageToUE(udpConn *net.UDPConn, srcAddr, dstAddr *net.UDPAddr, mes
 		pkt = append(prependZero, pkt...)
 	}
 
-	ikeLog.Trace("Sending...")
+	logger.IKELog.Debugln("sending...")
 	n, err := udpConn.WriteToUDP(pkt, dstAddr)
 	if err != nil {
-		ikeLog.Error(err)
+		logger.IKELog.Error(err)
 		return
 	}
 	if n != len(pkt) {
-		ikeLog.Errorf("Not all of the data is sent. Total length: %d. Sent: %d.", len(pkt), n)
+		logger.IKELog.Errorf("not all of the data is sent. Total length: %d. Sent: %d", len(pkt), n)
 		return
 	}
 }

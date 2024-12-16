@@ -1,22 +1,19 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
 	"errors"
 	"net"
 
-	"github.com/sirupsen/logrus"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/logger"
 	gtpv1 "github.com/wmnsk/go-gtp/v1"
 	"golang.org/x/net/ipv4"
-
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/logger"
 )
-
-var nwuupLog *logrus.Entry
-
-func init() {
-	nwuupLog = logger.NWuUPLog
-}
 
 // Run bind and listen IPv4 packet connection on N3IWF NWu interface
 // with UP_IP_ADDRESS, catching GRE encapsulated packets and forward
@@ -30,12 +27,12 @@ func Run() error {
 	// This socket will only capture GRE encapsulated packet
 	connection, err := net.ListenPacket("ip4:gre", listenAddr)
 	if err != nil {
-		nwuupLog.Errorf("Error setting listen socket on %s: %+v", listenAddr, err)
+		logger.NWuUPLog.Errorf("error setting listen socket on %s: %+v", listenAddr, err)
 		return errors.New("ListenPacket failed")
 	}
 	ipv4PacketConn := ipv4.NewPacketConn(connection)
-	if err != nil {
-		nwuupLog.Errorf("Error opening IPv4 packet connection socket on %s: %+v", listenAddr, err)
+	if ipv4PacketConn == nil {
+		logger.NWuUPLog.Errorf("error opening IPv4 packet connection socket on %s: %+v", listenAddr, err)
 		return errors.New("NewPacketConn failed")
 	}
 
@@ -51,7 +48,7 @@ func listenAndServe(ipv4PacketConn *ipv4.PacketConn) {
 	defer func() {
 		err := ipv4PacketConn.Close()
 		if err != nil {
-			nwuupLog.Errorf("Error closing raw socket: %+v", err)
+			logger.NWuUPLog.Errorf("error closing raw socket: %+v", err)
 		}
 	}()
 
@@ -59,9 +56,9 @@ func listenAndServe(ipv4PacketConn *ipv4.PacketConn) {
 
 	for {
 		n, _, src, err := ipv4PacketConn.ReadFrom(buffer)
-		nwuupLog.Tracef("Read %d bytes", n)
+		logger.NWuUPLog.Debugf("read %d bytes", n)
 		if err != nil {
-			nwuupLog.Errorf("Error read from IPv4 Packet connection: %+v", err)
+			logger.NWuUPLog.Errorf("error read from IPv4 Packet connection: %+v", err)
 			return
 		}
 
@@ -79,7 +76,7 @@ func forward(ueInnerIP string, packet []byte) {
 	self := context.N3IWFSelf()
 	ue, ok := self.AllocatedUEIPAddressLoad(ueInnerIP)
 	if !ok {
-		nwuupLog.Error("UE context not found")
+		logger.NWuUPLog.Errorln("UE context not found")
 		return
 	}
 
@@ -90,7 +87,7 @@ func forward(ueInnerIP string, packet []byte) {
 	}
 
 	if pduSession == nil {
-		nwuupLog.Error("This UE doesn't have any available PDU session")
+		logger.NWuUPLog.Errorln("this UE does not have any available PDU session")
 		return
 	}
 
@@ -100,15 +97,15 @@ func forward(ueInnerIP string, packet []byte) {
 
 	n, err := userPlaneConnection.WriteToGTP(gtpConnection.OutgoingTEID, packet, gtpConnection.UPFUDPAddr)
 	if err != nil {
-		nwuupLog.Errorf("Write to UPF failed: %+v", err)
+		logger.NWuUPLog.Errorf("write to UPF failed: %+v", err)
 		if err == gtpv1.ErrConnNotOpened {
-			nwuupLog.Error("The connection has been closed")
+			logger.NWuUPLog.Errorln("the connection has been closed")
 			// TODO: Release the GTP resource
 		}
 		return
 	} else {
-		nwuupLog.Trace("Forward NWu -> N3")
-		nwuupLog.Tracef("Wrote %d bytes", n)
+		logger.NWuUPLog.Debugln("forward NWu -> N3")
+		logger.NWuUPLog.Debugf("wrote %d bytes", n)
 		return
 	}
 }

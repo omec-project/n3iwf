@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package context
 
 import (
@@ -9,16 +14,12 @@ import (
 	"sync"
 
 	"git.cs.nctu.edu.tw/calee/sctp"
-	"github.com/sirupsen/logrus"
+	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/util/idgenerator"
 	gtpv1 "github.com/wmnsk/go-gtp/v1"
 	"golang.org/x/net/ipv4"
-
-	"github.com/free5gc/idgenerator"
-	"github.com/free5gc/n3iwf/logger"
-	"github.com/free5gc/ngap/ngapType"
 )
-
-var contextLog *logrus.Entry
 
 var n3iwfContext = N3IWFContext{}
 
@@ -65,9 +66,6 @@ type N3IWFContext struct {
 }
 
 func init() {
-	// init log
-	contextLog = logger.ContextLog
-
 	// init ID generator
 	n3iwfContext.RANUENGAPIDGenerator = idgenerator.NewGenerator(0, math.MaxInt64)
 	n3iwfContext.TEIDGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
@@ -81,7 +79,7 @@ func N3IWFSelf() *N3IWFContext {
 func (context *N3IWFContext) NewN3iwfUe() *N3IWFUe {
 	ranUeNgapId, err := context.RANUENGAPIDGenerator.Allocate()
 	if err != nil {
-		contextLog.Errorf("New N3IWF UE failed: %+v", err)
+		logger.ContextLog.Errorf("new N3IWF UE failed: %+v", err)
 		return nil
 	}
 	n3iwfUe := new(N3IWFUe)
@@ -107,7 +105,7 @@ func (context *N3IWFContext) NewN3iwfAmf(sctpAddr string, conn *sctp.SCTPConn) *
 	amf := new(N3IWFAMF)
 	amf.init(sctpAddr, conn)
 	if item, loaded := context.AMFPool.LoadOrStore(sctpAddr, amf); loaded {
-		contextLog.Warn("[Context] NewN3iwfAmf(): AMF entry already exists.")
+		logger.ContextLog.Warnln("AMF entry already exists")
 		return item.(*N3IWFAMF)
 	} else {
 		return amf
@@ -153,7 +151,7 @@ func (context *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociation
 	for {
 		localSPI, err := rand.Int(rand.Reader, maxSPI)
 		if err != nil {
-			contextLog.Error("[Context] Error occurs when generate new IKE SPI")
+			logger.ContextLog.Errorln("error occurs when generate new IKE SPI")
 			return nil
 		}
 		localSPIuint64 = localSPI.Uint64()
@@ -232,7 +230,7 @@ func (context *N3IWFContext) AllocatedUEIPAddressLoad(ipAddr string) (*N3IWFUe, 
 func (context *N3IWFContext) NewTEID(ue *N3IWFUe) uint32 {
 	teid64, err := context.TEIDGenerator.Allocate()
 	if err != nil {
-		contextLog.Errorf("New TEID failed: %+v", err)
+		logger.ContextLog.Errorf("new TEID failed: %+v", err)
 		return 0
 	}
 	teid32 := uint32(teid64)
@@ -275,7 +273,7 @@ func generateRandomIPinRange(subnet *net.IPNet) net.IP {
 
 	_, err := rand.Read(randomNumber)
 	if err != nil {
-		contextLog.Errorf("Generate random number for IP address failed: %+v", err)
+		logger.ContextLog.Errorf("generate random number for IP address failed: %+v", err)
 		return nil
 	}
 
