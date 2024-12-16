@@ -8,7 +8,7 @@ require (
 	github.com/omec-project/ngap v1.3.1
 	github.com/omec-project/util v1.2.7
 	github.com/urfave/cli v1.22.16
-	github.com/vishvananda/netlink v1.1.0
+	github.com/vishvananda/netlink v1.3.0
 	github.com/wmnsk/go-gtp v0.7.4
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.32.0
@@ -43,7 +43,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
-	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
+	github.com/vishvananda/netns v0.0.4 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
