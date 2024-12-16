@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package util
 
 import (
@@ -5,10 +10,10 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/free5gc/aper"
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/logger"
-	"github.com/free5gc/ngap/ngapType"
+	"github.com/omec-project/aper"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/ngap/ngapType"
 )
 
 func PlmnIdToNgap(plmnId context.PLMNID) (ngapPlmnId ngapType.PLMNIdentity) {
@@ -23,7 +28,7 @@ func PlmnIdToNgap(plmnId context.PLMNID) (ngapPlmnId ngapType.PLMNIdentity) {
 	var err error
 	ngapPlmnId.Value, err = hex.DecodeString(hexString)
 	if err != nil {
-		logger.UtilLog.Errorf("DecodeString error: %+v", err)
+		logger.UtilLog.Errorf("decode string error: %+v", err)
 	}
 	return
 }

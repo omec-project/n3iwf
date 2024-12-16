@@ -1,12 +1,13 @@
-/*
- * N3IWF Configuration Factory
- */
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
 
 package factory
 
 import (
-	"github.com/free5gc/logger_util"
-	"github.com/free5gc/n3iwf/context"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/util/logger"
 )
 
 const (
@@ -14,9 +15,9 @@ const (
 )
 
 type Config struct {
-	Info          *Info               `yaml:"info"`
-	Configuration *Configuration      `yaml:"configuration"`
-	Logger        *logger_util.Logger `yaml:"logger"`
+	Info          *Info          `yaml:"info"`
+	Configuration *Configuration `yaml:"configuration"`
+	Logger        *logger.Logger `yaml:"logger"`
 }
 
 type Info struct {

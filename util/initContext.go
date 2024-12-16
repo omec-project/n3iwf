@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package util
 
 import (
@@ -5,30 +10,21 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"encoding/pem"
-	"io/ioutil"
 	"net"
+	"os"
 	"strings"
 
 	"git.cs.nctu.edu.tw/calee/sctp"
-	"github.com/sirupsen/logrus"
-
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/factory"
-	"github.com/free5gc/n3iwf/logger"
-	"github.com/free5gc/path_util"
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/factory"
+	"github.com/omec-project/n3iwf/logger"
 )
-
-var contextLog *logrus.Entry
-
-func init() {
-	contextLog = logger.ContextLog
-}
 
 func InitN3IWFContext() bool {
 	var ok bool
 
 	if factory.N3iwfConfig.Configuration == nil {
-		contextLog.Error("No N3IWF configuration found")
+		logger.ContextLog.Errorln("no N3IWF configuration found")
 		return false
 	}
 
@@ -42,7 +38,7 @@ func InitN3IWFContext() bool {
 
 	// AMF SCTP addresses
 	if len(factory.N3iwfConfig.Configuration.AMFSCTPAddresses) == 0 {
-		contextLog.Error("No AMF specified")
+		logger.ContextLog.Errorln("no AMF specified")
 		return false
 	} else {
 		for _, amfAddress := range factory.N3iwfConfig.Configuration.AMFSCTPAddresses {
@@ -50,7 +46,7 @@ func InitN3IWFContext() bool {
 			// IP addresses
 			for _, ipAddrStr := range amfAddress.IPAddresses {
 				if ipAddr, err := net.ResolveIPAddr("ip", ipAddrStr); err != nil {
-					contextLog.Errorf("Resolve AMF IP address failed: %+v", err)
+					logger.ContextLog.Errorf("resolve AMF IP address failed: %+v", err)
 					return false
 				} else {
 					amfSCTPAddr.IPAddrs = append(amfSCTPAddr.IPAddrs, *ipAddr)
@@ -69,7 +65,7 @@ func InitN3IWFContext() bool {
 
 	// IKE bind address
 	if factory.N3iwfConfig.Configuration.IKEBindAddr == "" {
-		contextLog.Error("IKE bind address is empty")
+		logger.ContextLog.Errorln("IKE bind address is empty")
 		return false
 	} else {
 		n3iwfContext.IKEBindAddress = factory.N3iwfConfig.Configuration.IKEBindAddr
@@ -77,7 +73,7 @@ func InitN3IWFContext() bool {
 
 	// IPSec gateway address
 	if factory.N3iwfConfig.Configuration.IPSecGatewayAddr == "" {
-		contextLog.Error("IPSec interface address is empty")
+		logger.ContextLog.Errorln("IPSec interface address is empty")
 		return false
 	} else {
 		n3iwfContext.IPSecGatewayAddress = factory.N3iwfConfig.Configuration.IPSecGatewayAddr
@@ -85,7 +81,7 @@ func InitN3IWFContext() bool {
 
 	// GTP bind address
 	if factory.N3iwfConfig.Configuration.GTPBindAddr == "" {
-		contextLog.Error("GTP bind address is empty")
+		logger.ContextLog.Errorln("GTP bind address is empty")
 		return false
 	} else {
 		n3iwfContext.GTPBindAddress = factory.N3iwfConfig.Configuration.GTPBindAddr
@@ -93,7 +89,7 @@ func InitN3IWFContext() bool {
 
 	// TCP port
 	if factory.N3iwfConfig.Configuration.TCPPort == 0 {
-		contextLog.Error("TCP port is not defined")
+		logger.ContextLog.Errorln("TCP port is not defined")
 		return false
 	} else {
 		n3iwfContext.TCPPort = factory.N3iwfConfig.Configuration.TCPPort
@@ -101,7 +97,7 @@ func InitN3IWFContext() bool {
 
 	// FQDN
 	if factory.N3iwfConfig.Configuration.FQDN == "" {
-		contextLog.Error("FQDN is empty")
+		logger.ContextLog.Errorln("FQDN is empty")
 		return false
 	} else {
 		n3iwfContext.FQDN = factory.N3iwfConfig.Configuration.FQDN
@@ -111,37 +107,36 @@ func InitN3IWFContext() bool {
 	{
 		var keyPath string
 
-		if factory.N3iwfConfig.Configuration.PrivateKey == "" {
-			contextLog.Warn("No private key file path specified, load default key file...")
-			keyPath = path_util.Free5gcPath("free5gc/support/TLS/n3iwf.key")
-		} else {
+		if factory.N3iwfConfig.Configuration.PrivateKey != "" {
 			keyPath = factory.N3iwfConfig.Configuration.PrivateKey
+		} else {
+			logger.ContextLog.Errorln("no private key file path specified")
 		}
 
-		content, err := ioutil.ReadFile(keyPath)
+		content, err := os.ReadFile(keyPath)
 		if err != nil {
-			contextLog.Errorf("Cannot read private key data from file: %+v", err)
+			logger.ContextLog.Errorf("cannot read private key data from file: %+v", err)
 			return false
 		}
 		block, _ := pem.Decode(content)
 		if block == nil {
-			contextLog.Error("Parse pem failed")
+			logger.ContextLog.Errorln("parse pem failed")
 			return false
 		}
 		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
-			contextLog.Warnf("Parse PKCS8 private key failed: %+v", err)
-			contextLog.Info("Parse using PKCS1...")
+			logger.ContextLog.Warnf("parse PKCS8 private key failed: %+v", err)
+			logger.ContextLog.Infoln("parse using PKCS1")
 
 			key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 			if err != nil {
-				contextLog.Errorf("Parse PKCS1 pricate key failed: %+v", err)
+				logger.ContextLog.Errorf("parse PKCS1 pricate key failed: %+v", err)
 				return false
 			}
 		}
 		rsaKey, ok := key.(*rsa.PrivateKey)
 		if !ok {
-			contextLog.Error("Private key is not an rsa private key")
+			logger.ContextLog.Errorln("private key is not an rsa private key")
 			return false
 		}
 
@@ -152,35 +147,34 @@ func InitN3IWFContext() bool {
 	{
 		var keyPath string
 
-		if factory.N3iwfConfig.Configuration.CertificateAuthority == "" {
-			contextLog.Warn("No certificate authority file path specified, load default CA certificate...")
-			keyPath = path_util.Free5gcPath("free5gc/support/TLS/n3iwf.pem")
-		} else {
+		if factory.N3iwfConfig.Configuration.CertificateAuthority != "" {
 			keyPath = factory.N3iwfConfig.Configuration.CertificateAuthority
+		} else {
+			logger.ContextLog.Errorln("no certificate authority file path specified")
 		}
 
 		// Read .pem
-		content, err := ioutil.ReadFile(keyPath)
+		content, err := os.ReadFile(keyPath)
 		if err != nil {
-			contextLog.Errorf("Cannot read certificate authority data from file: %+v", err)
+			logger.ContextLog.Errorf("cannot read certificate authority data from file: %+v", err)
 			return false
 		}
 		// Decode pem
 		block, _ := pem.Decode(content)
 		if block == nil {
-			contextLog.Error("Parse pem failed")
+			logger.ContextLog.Errorln("parse pem failed")
 			return false
 		}
 		// Parse DER-encoded x509 certificate
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			contextLog.Errorf("Parse certificate authority failed: %+v", err)
+			logger.ContextLog.Errorf("parse certificate authority failed: %+v", err)
 			return false
 		}
 		// Get sha1 hash of subject public key info
 		sha1Hash := sha1.New()
 		if _, err := sha1Hash.Write(cert.RawSubjectPublicKeyInfo); err != nil {
-			contextLog.Errorf("Hash function writing failed: %+v", err)
+			logger.ContextLog.Errorf("hash function writing failed: %+v", err)
 			return false
 		}
 
@@ -191,23 +185,22 @@ func InitN3IWFContext() bool {
 	{
 		var keyPath string
 
-		if factory.N3iwfConfig.Configuration.Certificate == "" {
-			contextLog.Warn("No certificate file path specified, load default certificate...")
-			keyPath = path_util.Free5gcPath("free5gc/support/TLS/n3iwf.pem")
-		} else {
+		if factory.N3iwfConfig.Configuration.Certificate != "" {
 			keyPath = factory.N3iwfConfig.Configuration.Certificate
+		} else {
+			logger.ContextLog.Errorln("no certificate file path specified")
 		}
 
 		// Read .pem
-		content, err := ioutil.ReadFile(keyPath)
+		content, err := os.ReadFile(keyPath)
 		if err != nil {
-			contextLog.Errorf("Cannot read certificate data from file: %+v", err)
+			logger.ContextLog.Errorf("cannot read certificate data from file: %+v", err)
 			return false
 		}
 		// Decode pem
 		block, _ := pem.Decode(content)
 		if block == nil {
-			contextLog.Error("Parse pem failed")
+			logger.ContextLog.Errorln("parse pem failed")
 			return false
 		}
 
@@ -216,19 +209,19 @@ func InitN3IWFContext() bool {
 
 	// UE IP address range
 	if factory.N3iwfConfig.Configuration.UEIPAddressRange == "" {
-		contextLog.Error("UE IP address range is empty")
+		logger.ContextLog.Errorln("UE IP address range is empty")
 		return false
 	} else {
 		_, ueIPRange, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.UEIPAddressRange)
 		if err != nil {
-			contextLog.Errorf("Parse CIDR failed: %+v", err)
+			logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
 			return false
 		}
 		n3iwfContext.Subnet = ueIPRange
 	}
 
 	if factory.N3iwfConfig.Configuration.InterfaceMark == 0 {
-		contextLog.Warn("IPSec interface mark is not defined, set to default value 7")
+		logger.ContextLog.Warnln("IPSec interface mark is not defined, set to default value 7")
 		n3iwfContext.Mark = 7
 	} else {
 		n3iwfContext.Mark = factory.N3iwfConfig.Configuration.InterfaceMark
@@ -243,15 +236,15 @@ func formatSupportedTAList(info *context.N3IWFNFInfo) bool {
 
 		// Checking TAC
 		if supportedTAItem.TAC == "" {
-			contextLog.Error("TAC is mandatory.")
+			logger.ContextLog.Errorln("TAC is mandatory")
 			return false
 		}
 		if len(supportedTAItem.TAC) < 6 {
-			contextLog.Trace("Detect configuration TAC length < 6")
+			logger.ContextLog.Debugln("detect configuration TAC length < 6")
 			supportedTAItem.TAC = strings.Repeat("0", 6-len(supportedTAItem.TAC)) + supportedTAItem.TAC
-			contextLog.Tracef("Changed to %s", supportedTAItem.TAC)
+			logger.ContextLog.Debugf("changed to %s", supportedTAItem.TAC)
 		} else if len(supportedTAItem.TAC) > 6 {
-			contextLog.Error("Detect configuration TAC length > 6")
+			logger.ContextLog.Errorln("detect configuration TAC length > 6")
 			return false
 		}
 
@@ -264,25 +257,25 @@ func formatSupportedTAList(info *context.N3IWFNFInfo) bool {
 
 				// SST
 				if sliceSupportItem.SNSSAI.SST == "" {
-					contextLog.Error("SST is mandatory.")
+					logger.ContextLog.Errorln("SST is mandatory")
 				}
 				if len(sliceSupportItem.SNSSAI.SST) < 2 {
-					contextLog.Trace("Detect configuration SST length < 2")
+					logger.ContextLog.Debugln("detect configuration SST length < 2")
 					sliceSupportItem.SNSSAI.SST = "0" + sliceSupportItem.SNSSAI.SST
-					contextLog.Tracef("Change to %s", sliceSupportItem.SNSSAI.SST)
+					logger.ContextLog.Debugf("change to %s", sliceSupportItem.SNSSAI.SST)
 				} else if len(sliceSupportItem.SNSSAI.SST) > 2 {
-					contextLog.Error("Detect configuration SST length > 2")
+					logger.ContextLog.Errorln("detect configuration SST length > 2")
 					return false
 				}
 
 				// SD
 				if sliceSupportItem.SNSSAI.SD != "" {
 					if len(sliceSupportItem.SNSSAI.SD) < 6 {
-						contextLog.Trace("Detect configuration SD length < 6")
+						logger.ContextLog.Debugln("detect configuration SD length < 6")
 						sliceSupportItem.SNSSAI.SD = strings.Repeat("0", 6-len(sliceSupportItem.SNSSAI.SD)) + sliceSupportItem.SNSSAI.SD
-						contextLog.Tracef("Change to %s", sliceSupportItem.SNSSAI.SD)
+						logger.ContextLog.Debugf("change to %s", sliceSupportItem.SNSSAI.SD)
 					} else if len(sliceSupportItem.SNSSAI.SD) > 6 {
-						contextLog.Error("Detect configuration SD length > 6")
+						logger.ContextLog.Errorln("detect configuration SD length > 6")
 						return false
 					}
 				}

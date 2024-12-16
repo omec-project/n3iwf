@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package message
 
 import (
@@ -280,12 +285,6 @@ func TestEncodeDecode(t *testing.T) {
 
 	testEAP.Code = 1
 	testEAP.Identifier = 123
-
-	testEAPExpanded := new(EAPExpanded)
-
-	testEAPExpanded.VendorID = 26838
-	testEAPExpanded.VendorType = 1
-	testEAPExpanded.VendorData = []byte{9, 4, 8, 7}
 
 	testEAPNotification := new(EAPNotification)
 

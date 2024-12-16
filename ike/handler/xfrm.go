@@ -1,12 +1,17 @@
+// SPDX-FileCopyrightText: 2024 Intel Corporation
+// Copyright 2019 free5GC.org
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package handler
 
 import (
 	"errors"
 
+	"github.com/omec-project/n3iwf/context"
+	"github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/logger"
 	"github.com/vishvananda/netlink"
-
-	"github.com/free5gc/n3iwf/context"
-	"github.com/free5gc/n3iwf/ike/message"
 )
 
 type XFRMEncryptionAlgorithmType uint16
@@ -107,8 +112,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 	// Commit xfrm state to netlink
 	var err error
 	if err = netlink.XfrmStateAdd(xfrmState); err != nil {
-		ikeLog.Errorf("Set XFRM rules failed: %+v", err)
-		return errors.New("Set XFRM state rule failed")
+		logger.IKELog.Errorf("set XFRM rules failed: %+v", err)
+		return errors.New("set XFRM state rule failed")
 	}
 
 	// Policy
@@ -133,8 +138,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 
 	// Commit xfrm policy to netlink
 	if err = netlink.XfrmPolicyAdd(xfrmPolicy); err != nil {
-		ikeLog.Errorf("Set XFRM rules failed: %+v", err)
-		return errors.New("Set XFRM policy rule failed")
+		logger.IKELog.Errorf("set XFRM rules failed: %+v", err)
+		return errors.New("set XFRM policy rule failed")
 	}
 
 	// Direction: this_server -> {private_network}
@@ -158,8 +163,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 
 	// Commit xfrm state to netlink
 	if err = netlink.XfrmStateAdd(xfrmState); err != nil {
-		ikeLog.Errorf("Set XFRM rules failed: %+v", err)
-		return errors.New("Set XFRM state rule failed")
+		logger.IKELog.Errorf("set XFRM rules failed: %+v", err)
+		return errors.New("set XFRM state rule failed")
 	}
 
 	// Policy
@@ -173,8 +178,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 
 	// Commit xfrm policy to netlink
 	if err = netlink.XfrmPolicyAdd(xfrmPolicy); err != nil {
-		ikeLog.Errorf("Set XFRM rules failed: %+v", err)
-		return errors.New("Set XFRM policy rule failed")
+		logger.IKELog.Errorf("set XFRM rules failed: %+v", err)
+		return errors.New("set XFRM policy rule failed")
 	}
 
 	return nil
