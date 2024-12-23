@@ -6,12 +6,12 @@ require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
 	github.com/omec-project/aper v1.2.2
 	github.com/omec-project/ngap v1.3.1
-	github.com/omec-project/util v1.2.7
+	github.com/omec-project/util v1.2.8
 	github.com/urfave/cli v1.22.16
 	github.com/vishvananda/netlink v1.3.0
 	github.com/wmnsk/go-gtp v0.7.4
 	go.uber.org/zap v1.27.0
-	golang.org/x/net v0.32.0
+	golang.org/x/net v0.33.0
 	golang.org/x/sys v0.28.0
 	gopkg.in/yaml.v2 v2.4.0
 )
