@@ -27,11 +27,12 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "n3iwf"
 	appLog.Infoln(app.Name)
-	app.Usage = "-free5gccfg common configuration file -n3iwfcfg n3iwf configuration file"
+	app.Usage = "Non-3GPP Interworking Function"
+	app.UsageText = "n3iwf -cfg <n3iwf_config_file.conf>"
 	app.Action = action
 	app.Flags = N3IWF.GetCliCmd()
 	if err := app.Run(os.Args); err != nil {
-		appLog.Errorf("N3IWF run Error: %v", err)
+		appLog.Fatalf("N3IWF run error: %v", err)
 	}
 }
 
