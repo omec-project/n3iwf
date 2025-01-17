@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2024 Intel Corporation
 # Copyright 2019 free5GC.org
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -8,26 +9,40 @@ info:
   description: N3IWF initial local configuration
 
 configuration:
-  N3IWFInformation:
-    GlobalN3IWFID:
-      PLMNID:
-        MCC: 208
-        MNC: 93
-      N3IWFID: 135
-    Name:
-      aether_N3IWF
-    SupportedTAList:
-      - TAC: 1
-        BroadcastPLMNList:
-          - PLMNID:
-              MCC: 208
-              MNC: 93
-            TAISliceSupportList:
-              - SNSSAI:
-                  SST: 1
-                  SD: 010203
-              - SNSSAI:
-                  SST: 1
-                  SD: 112233
-  AMFAddress:
-    - IP: 127.0.0.1
+  n3iwfInformation:
+    globalN3iwfId:
+      plmnId:
+        mcc: 208
+        mnc: 93
+      n3iwfId: 135
+    name:
+      aether_n3iwf
+    supportedTaList:
+      - tac: 1
+        broadcastPlmnList:
+          - plmnId:
+              mcc: 208
+              mnc: 93
+            taiSliceSupportList:
+              - snssai:
+                  sst: 1
+                  sd: 010203
+              - snssai:
+                  sst: 1
+                  sd: 112233
+  amfSctpAddresses:
+    - ipList:
+      - "127.0.0.1"
+  ikeBindAddress: "127.0.0.1"
+  ipSecAddress: "127.0.0.1"
+  gtpBindAddress: "127.0.0.1"
+  nasTcpPort: 32550
+  fqdn: n3iwf.aether.org
+  privateKey: "/opt/n3iwf.key"
+  certificateAuthority: "/opt/n3iwf.crt"
+  certificate: "/opt/n3iwf.crt"
+  ueIpNetwork: "192.168.110.0/24"
+
+logger:
+  N3IWF:
+    debugLevel: info

@@ -24,30 +24,30 @@ import (
 var n3iwfContext = N3IWFContext{}
 
 type N3IWFContext struct {
-	NFInfo           N3IWFNFInfo
-	AMFSCTPAddresses []*sctp.SCTPAddr
+	NfInfo           N3iwfNfInfo
+	AmfSctpAddresses []*sctp.SCTPAddr
 
 	// ID generator
-	RANUENGAPIDGenerator *idgenerator.IDGenerator
-	TEIDGenerator        *idgenerator.IDGenerator
+	RanUuNgapIdGenerator *idgenerator.IDGenerator
+	TeidGenerator        *idgenerator.IDGenerator
 
 	// Pools
 	UePool                 sync.Map // map[int64]*N3IWFUe, RanUeNgapID as key
-	AMFPool                sync.Map // map[string]*N3IWFAMF, SCTPAddr as key
-	AMFReInitAvailableList sync.Map // map[string]bool, SCTPAddr as key
-	IKESA                  sync.Map // map[uint64]*IKESecurityAssociation, SPI as key
+	AmfPool                sync.Map // map[string]*N3IWFAMF, SCTPAddr as key
+	AmfReInitAvailableList sync.Map // map[string]bool, SCTPAddr as key
+	IkeSA                  sync.Map // map[uint64]*IKESecurityAssociation, SPI as key
 	ChildSA                sync.Map // map[uint32]*ChildSecurityAssociation, SPI as key
-	GTPConnectionWithUPF   sync.Map // map[string]*gtpv1.UPlaneConn, UPF address as key
-	AllocatedUEIPAddress   sync.Map // map[string]*N3IWFUe, IPAddr as key
-	AllocatedUETEID        sync.Map // map[uint32]*N3IWFUe, TEID as key
+	GtpConnectionUPF       sync.Map // map[string]*gtpv1.UPlaneConn, UPF address as key
+	AllocatedUeIpAddress   sync.Map // map[string]*N3IWFUe, IPAddr as key
+	AllocatedUeTeid        sync.Map // map[uint32]*N3IWFUe, TEID as key
 
 	// N3IWF FQDN
-	FQDN string
+	Fqdn string
 
 	// Security data
 	CertificateAuthority []byte
-	N3IWFCertificate     []byte
-	N3IWFPrivateKey      *rsa.PrivateKey
+	N3iwfCertificate     []byte
+	N3iwfPrivateKey      *rsa.PrivateKey
 
 	// UEIPAddressRange
 	Subnet *net.IPNet
@@ -56,10 +56,10 @@ type N3IWFContext struct {
 	Mark uint32
 
 	// N3IWF local address
-	IKEBindAddress      string
-	IPSecGatewayAddress string
-	GTPBindAddress      string
-	TCPPort             uint16
+	IkeBindAddress      string
+	IpSecGatewayAddress string
+	GtpBindAddress      string
+	TcpPort             uint16
 
 	// N3IWF NWu interface IPv4 packet connection
 	NWuIPv4PacketConn *ipv4.PacketConn
@@ -67,8 +67,8 @@ type N3IWFContext struct {
 
 func init() {
 	// init ID generator
-	n3iwfContext.RANUENGAPIDGenerator = idgenerator.NewGenerator(0, math.MaxInt64)
-	n3iwfContext.TEIDGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
+	n3iwfContext.RanUuNgapIdGenerator = idgenerator.NewGenerator(0, math.MaxInt64)
+	n3iwfContext.TeidGenerator = idgenerator.NewGenerator(1, math.MaxUint32)
 }
 
 // Create new N3IWF context
@@ -77,7 +77,7 @@ func N3IWFSelf() *N3IWFContext {
 }
 
 func (context *N3IWFContext) NewN3iwfUe() *N3IWFUe {
-	ranUeNgapId, err := context.RANUENGAPIDGenerator.Allocate()
+	ranUeNgapId, err := context.RanUuNgapIdGenerator.Allocate()
 	if err != nil {
 		logger.ContextLog.Errorf("new N3IWF UE failed: %+v", err)
 		return nil
@@ -104,7 +104,7 @@ func (context *N3IWFContext) UePoolLoad(ranUeNgapId int64) (*N3IWFUe, bool) {
 func (context *N3IWFContext) NewN3iwfAmf(sctpAddr string, conn *sctp.SCTPConn) *N3IWFAMF {
 	amf := new(N3IWFAMF)
 	amf.init(sctpAddr, conn)
-	if item, loaded := context.AMFPool.LoadOrStore(sctpAddr, amf); loaded {
+	if item, loaded := context.AmfPool.LoadOrStore(sctpAddr, amf); loaded {
 		logger.ContextLog.Warnln("AMF entry already exists")
 		return item.(*N3IWFAMF)
 	} else {
@@ -113,11 +113,11 @@ func (context *N3IWFContext) NewN3iwfAmf(sctpAddr string, conn *sctp.SCTPConn) *
 }
 
 func (context *N3IWFContext) DeleteN3iwfAmf(sctpAddr string) {
-	context.AMFPool.Delete(sctpAddr)
+	context.AmfPool.Delete(sctpAddr)
 }
 
 func (context *N3IWFContext) AMFPoolLoad(sctpAddr string) (*N3IWFAMF, bool) {
-	amf, ok := context.AMFPool.Load(sctpAddr)
+	amf, ok := context.AmfPool.Load(sctpAddr)
 	if ok {
 		return amf.(*N3IWFAMF), ok
 	} else {
@@ -126,11 +126,11 @@ func (context *N3IWFContext) AMFPoolLoad(sctpAddr string) (*N3IWFAMF, bool) {
 }
 
 func (context *N3IWFContext) DeleteAMFReInitAvailableFlag(sctpAddr string) {
-	context.AMFReInitAvailableList.Delete(sctpAddr)
+	context.AmfReInitAvailableList.Delete(sctpAddr)
 }
 
 func (context *N3IWFContext) AMFReInitAvailableListLoad(sctpAddr string) (bool, bool) {
-	flag, ok := context.AMFReInitAvailableList.Load(sctpAddr)
+	flag, ok := context.AmfReInitAvailableList.Load(sctpAddr)
 	if ok {
 		return flag.(bool), ok
 	} else {
@@ -139,7 +139,7 @@ func (context *N3IWFContext) AMFReInitAvailableListLoad(sctpAddr string) (bool, 
 }
 
 func (context *N3IWFContext) AMFReInitAvailableListStore(sctpAddr string, flag bool) {
-	context.AMFReInitAvailableList.Store(sctpAddr, flag)
+	context.AmfReInitAvailableList.Store(sctpAddr, flag)
 }
 
 func (context *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociation {
@@ -155,7 +155,7 @@ func (context *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociation
 			return nil
 		}
 		localSPIuint64 = localSPI.Uint64()
-		if _, duplicate := context.IKESA.LoadOrStore(localSPIuint64, ikeSecurityAssociation); !duplicate {
+		if _, duplicate := context.IkeSA.LoadOrStore(localSPIuint64, ikeSecurityAssociation); !duplicate {
 			break
 		}
 	}
@@ -166,11 +166,11 @@ func (context *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociation
 }
 
 func (context *N3IWFContext) DeleteIKESecurityAssociation(spi uint64) {
-	context.IKESA.Delete(spi)
+	context.IkeSA.Delete(spi)
 }
 
 func (context *N3IWFContext) IKESALoad(spi uint64) (*IKESecurityAssociation, bool) {
-	securityAssociation, ok := context.IKESA.Load(spi)
+	securityAssociation, ok := context.IkeSA.Load(spi)
 	if ok {
 		return securityAssociation.(*IKESecurityAssociation), ok
 	} else {
@@ -179,11 +179,11 @@ func (context *N3IWFContext) IKESALoad(spi uint64) (*IKESecurityAssociation, boo
 }
 
 func (context *N3IWFContext) DeleteGTPConnection(upfAddr string) {
-	context.GTPConnectionWithUPF.Delete(upfAddr)
+	context.GtpConnectionUPF.Delete(upfAddr)
 }
 
 func (context *N3IWFContext) GTPConnectionWithUPFLoad(upfAddr string) (*gtpv1.UPlaneConn, bool) {
-	conn, ok := context.GTPConnectionWithUPF.Load(upfAddr)
+	conn, ok := context.GtpConnectionUPF.Load(upfAddr)
 	if ok {
 		return conn.(*gtpv1.UPlaneConn), ok
 	} else {
@@ -192,7 +192,7 @@ func (context *N3IWFContext) GTPConnectionWithUPFLoad(upfAddr string) (*gtpv1.UP
 }
 
 func (context *N3IWFContext) GTPConnectionWithUPFStore(upfAddr string, conn *gtpv1.UPlaneConn) {
-	context.GTPConnectionWithUPF.Store(upfAddr, conn)
+	context.GtpConnectionUPF.Store(upfAddr, conn)
 }
 
 func (context *N3IWFContext) NewInternalUEIPAddr(ue *N3IWFUe) net.IP {
@@ -202,10 +202,10 @@ func (context *N3IWFContext) NewInternalUEIPAddr(ue *N3IWFUe) net.IP {
 	for {
 		ueIPAddr = generateRandomIPinRange(context.Subnet)
 		if ueIPAddr != nil {
-			if ueIPAddr.String() == context.IPSecGatewayAddress {
+			if ueIPAddr.String() == context.IpSecGatewayAddress {
 				continue
 			}
-			if _, ok := context.AllocatedUEIPAddress.LoadOrStore(ueIPAddr.String(), ue); !ok {
+			if _, ok := context.AllocatedUeIpAddress.LoadOrStore(ueIPAddr.String(), ue); !ok {
 				break
 			}
 		}
@@ -215,11 +215,11 @@ func (context *N3IWFContext) NewInternalUEIPAddr(ue *N3IWFUe) net.IP {
 }
 
 func (context *N3IWFContext) DeleteInternalUEIPAddr(ipAddr string) {
-	context.AllocatedUEIPAddress.Delete(ipAddr)
+	context.AllocatedUeIpAddress.Delete(ipAddr)
 }
 
 func (context *N3IWFContext) AllocatedUEIPAddressLoad(ipAddr string) (*N3IWFUe, bool) {
-	ue, ok := context.AllocatedUEIPAddress.Load(ipAddr)
+	ue, ok := context.AllocatedUeIpAddress.Load(ipAddr)
 	if ok {
 		return ue.(*N3IWFUe), ok
 	} else {
@@ -228,24 +228,24 @@ func (context *N3IWFContext) AllocatedUEIPAddressLoad(ipAddr string) (*N3IWFUe, 
 }
 
 func (context *N3IWFContext) NewTEID(ue *N3IWFUe) uint32 {
-	teid64, err := context.TEIDGenerator.Allocate()
+	teid64, err := context.TeidGenerator.Allocate()
 	if err != nil {
 		logger.ContextLog.Errorf("new TEID failed: %+v", err)
 		return 0
 	}
 	teid32 := uint32(teid64)
 
-	context.AllocatedUETEID.Store(teid32, ue)
+	context.AllocatedUeTeid.Store(teid32, ue)
 
 	return teid32
 }
 
 func (context *N3IWFContext) DeleteTEID(teid uint32) {
-	context.AllocatedUETEID.Delete(teid)
+	context.AllocatedUeTeid.Delete(teid)
 }
 
 func (context *N3IWFContext) AllocatedUETEIDLoad(teid uint32) (*N3IWFUe, bool) {
-	ue, ok := context.AllocatedUETEID.Load(teid)
+	ue, ok := context.AllocatedUeTeid.Load(teid)
 	if ok {
 		return ue.(*N3IWFUe), ok
 	} else {
@@ -255,7 +255,7 @@ func (context *N3IWFContext) AllocatedUETEIDLoad(teid uint32) (*N3IWFUe, bool) {
 
 func (context *N3IWFContext) AMFSelection(ueSpecifiedGUAMI *ngapType.GUAMI) *N3IWFAMF {
 	var availableAMF *N3IWFAMF
-	context.AMFPool.Range(func(key, value interface{}) bool {
+	context.AmfPool.Range(func(key, value interface{}) bool {
 		amf := value.(*N3IWFAMF)
 		if amf.FindAvalibleAMFByCompareGUAMI(ueSpecifiedGUAMI) {
 			availableAMF = amf

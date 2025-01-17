@@ -339,7 +339,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, messa
 	ikeSecurityAssociation.LocalUnsignedAuthentication = append(responseIKEMessageData, nonce.NonceData...)
 	// MACedIDForR
 	var idPayload ike_message.IKEPayloadContainer
-	idPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.FQDN))
+	idPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.Fqdn))
 	idPayloadData, err := idPayload.Encode()
 	if err != nil {
 		logger.IKELog.Errorln("encode IKE payload failed: %+v", err)
@@ -678,10 +678,10 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		responseIKEMessage.Payloads.Reset()
 
 		// Identification
-		responseIKEPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.FQDN))
+		responseIKEPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.Fqdn))
 
 		// Certificate
-		responseIKEPayload.BuildCertificate(ike_message.X509CertificateSignature, n3iwfSelf.N3IWFCertificate)
+		responseIKEPayload.BuildCertificate(ike_message.X509CertificateSignature, n3iwfSelf.N3iwfCertificate)
 
 		// Authentication Data
 		logger.IKELog.Debugf("local authentication data: %s", hex.Dump(ikeSecurityAssociation.LocalUnsignedAuthentication))
@@ -691,7 +691,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			return
 		}
 
-		signedAuth, err := rsa.SignPKCS1v15(rand.Reader, n3iwfSelf.N3IWFPrivateKey, crypto.SHA1, sha1HashFunction.Sum(nil))
+		signedAuth, err := rsa.SignPKCS1v15(rand.Reader, n3iwfSelf.N3iwfPrivateKey, crypto.SHA1, sha1HashFunction.Sum(nil))
 		if err != nil {
 			logger.IKELog.Errorf("sign authentication data failed: %+v", err)
 		}
@@ -962,7 +962,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		if addrRequest {
 			// IP addresses (IPSec)
 			ueIPAddr = n3iwfSelf.NewInternalUEIPAddr(thisUE)
-			n3iwfIPAddr = net.ParseIP(n3iwfSelf.IPSecGatewayAddress)
+			n3iwfIPAddr = net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
 
 			responseConfiguration := responseIKEPayload.BuildConfiguration(ike_message.CFG_REPLY)
 			responseConfiguration.ConfigurationAttribute.BuildConfigurationAttribute(ike_message.INTERNAL_IP4_ADDRESS, ueIPAddr)
@@ -1026,10 +1026,10 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		}
 
 		// Notification(NAS_IP_ADDRESS)
-		responseIKEPayload.BuildNotifyNAS_IP4_ADDRESS(n3iwfSelf.IPSecGatewayAddress)
+		responseIKEPayload.BuildNotifyNAS_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
 
 		// Notification(NSA_TCP_PORT)
-		responseIKEPayload.BuildNotifyNAS_TCP_PORT(n3iwfSelf.TCPPort)
+		responseIKEPayload.BuildNotifyNAS_TCP_PORT(n3iwfSelf.TcpPort)
 
 		if errEncrypt := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); errEncrypt != nil {
 			logger.IKELog.Errorf("encrypting IKE message failed: %+v", errEncrypt)
@@ -1110,7 +1110,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 					tsi.TrafficSelectors.BuildIndividualTrafficSelector(ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
 						0, 65535, ueIPAddr, ueIPAddr)
 					// TSr
-					n3iwfIPAddr := net.ParseIP(n3iwfSelf.IPSecGatewayAddress)
+					n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
 					tsr := ikePayload.BuildTrafficSelectorResponder()
 					tsr.TrafficSelectors.BuildIndividualTrafficSelector(ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
 						0, 65535, n3iwfIPAddr, n3iwfIPAddr)
@@ -1119,7 +1119,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 					ikePayload.BuildNotify5G_QOS_INFO(uint8(pduSessionID), pduSession.QFIList, true, false, 0)
 
 					// Notify-UP_IP_ADDRESS
-					ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IPSecGatewayAddress)
+					ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
 
 					if err := EncryptProcedure(
 						thisUE.N3IWFIKESecurityAssociation, ikePayload, ikeMessage); err != nil {
@@ -1404,7 +1404,7 @@ func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 			tsi.TrafficSelectors.BuildIndividualTrafficSelector(ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
 				0, 65535, ueIPAddr, ueIPAddr)
 			// TSr
-			n3iwfIPAddr := net.ParseIP(n3iwfSelf.IPSecGatewayAddress)
+			n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
 			tsr := ikePayload.BuildTrafficSelectorResponder()
 			tsr.TrafficSelectors.BuildIndividualTrafficSelector(ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
 				0, 65535, n3iwfIPAddr, n3iwfIPAddr)
@@ -1413,7 +1413,7 @@ func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 			ikePayload.BuildNotify5G_QOS_INFO(uint8(pduSessionID), pduSession.QFIList, true, false, 0)
 
 			// Notify-UP_IP_ADDRESS
-			ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IPSecGatewayAddress)
+			ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
 
 			if err := EncryptProcedure(thisUE.N3IWFIKESecurityAssociation, ikePayload, ikeMessage); err != nil {
 				logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
@@ -1693,7 +1693,7 @@ func parseIPAddressInformationToChildSecurityAssociation(
 	}
 
 	childSecurityAssociation.PeerPublicIPAddr = uePublicIPAddr
-	childSecurityAssociation.LocalPublicIPAddr = net.ParseIP(context.N3IWFSelf().IKEBindAddress)
+	childSecurityAssociation.LocalPublicIPAddr = net.ParseIP(context.N3IWFSelf().IkeBindAddress)
 
 	logger.IKELog.Debugf("local TS: %+v", trafficSelectorLocal.StartAddress)
 	logger.IKELog.Debugf("remote TS: %+v", trafficSelectorRemote.StartAddress)

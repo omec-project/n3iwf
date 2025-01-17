@@ -22,7 +22,7 @@ import (
 func Run() error {
 	// N3IWF context
 	n3iwfSelf := context.N3IWFSelf()
-	tcpAddr := fmt.Sprintf("%s:%d", n3iwfSelf.IPSecGatewayAddress, n3iwfSelf.TCPPort)
+	tcpAddr := fmt.Sprintf("%s:%d", n3iwfSelf.IpSecGatewayAddress, n3iwfSelf.TcpPort)
 
 	tcpListener, err := net.Listen("tcp", tcpAddr)
 	if err != nil {

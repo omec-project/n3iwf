@@ -23,7 +23,7 @@ func Run() error {
 	// n3iwf context
 	n3iwfSelf := context.N3IWFSelf()
 	// load amf SCTP address slice
-	amfSCTPAddresses := n3iwfSelf.AMFSCTPAddresses
+	amfSCTPAddresses := n3iwfSelf.AmfSctpAddresses
 
 	localAddr := new(sctp.SCTPAddr)
 

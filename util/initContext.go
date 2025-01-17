@@ -31,20 +31,20 @@ func InitN3IWFContext() bool {
 	n3iwfContext := context.N3IWFSelf()
 
 	// N3IWF NF information
-	n3iwfContext.NFInfo = factory.N3iwfConfig.Configuration.N3IWFInfo
-	if ok = formatSupportedTAList(&n3iwfContext.NFInfo); !ok {
+	n3iwfContext.NfInfo = factory.N3iwfConfig.Configuration.N3iwfInfo
+	if ok = formatSupportedTAList(&n3iwfContext.NfInfo); !ok {
 		return false
 	}
 
 	// AMF SCTP addresses
-	if len(factory.N3iwfConfig.Configuration.AMFSCTPAddresses) == 0 {
+	if len(factory.N3iwfConfig.Configuration.AmfSctpAddresses) == 0 {
 		logger.ContextLog.Errorln("no AMF specified")
 		return false
 	} else {
-		for _, amfAddress := range factory.N3iwfConfig.Configuration.AMFSCTPAddresses {
+		for _, amfAddress := range factory.N3iwfConfig.Configuration.AmfSctpAddresses {
 			amfSCTPAddr := new(sctp.SCTPAddr)
 			// IP addresses
-			for _, ipAddrStr := range amfAddress.IPAddresses {
+			for _, ipAddrStr := range amfAddress.IpAddresses {
 				if ipAddr, err := net.ResolveIPAddr("ip", ipAddrStr); err != nil {
 					logger.ContextLog.Errorf("resolve AMF IP address failed: %+v", err)
 					return false
@@ -59,48 +59,48 @@ func InitN3IWFContext() bool {
 				amfSCTPAddr.Port = amfAddress.Port
 			}
 			// Append to context
-			n3iwfContext.AMFSCTPAddresses = append(n3iwfContext.AMFSCTPAddresses, amfSCTPAddr)
+			n3iwfContext.AmfSctpAddresses = append(n3iwfContext.AmfSctpAddresses, amfSCTPAddr)
 		}
 	}
 
 	// IKE bind address
-	if factory.N3iwfConfig.Configuration.IKEBindAddr == "" {
+	if factory.N3iwfConfig.Configuration.IkeBindAddress == "" {
 		logger.ContextLog.Errorln("IKE bind address is empty")
 		return false
 	} else {
-		n3iwfContext.IKEBindAddress = factory.N3iwfConfig.Configuration.IKEBindAddr
+		n3iwfContext.IkeBindAddress = factory.N3iwfConfig.Configuration.IkeBindAddress
 	}
 
 	// IPSec gateway address
-	if factory.N3iwfConfig.Configuration.IPSecGatewayAddr == "" {
+	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
 		logger.ContextLog.Errorln("IPSec interface address is empty")
 		return false
 	} else {
-		n3iwfContext.IPSecGatewayAddress = factory.N3iwfConfig.Configuration.IPSecGatewayAddr
+		n3iwfContext.IpSecGatewayAddress = factory.N3iwfConfig.Configuration.IpSecAddress
 	}
 
 	// GTP bind address
-	if factory.N3iwfConfig.Configuration.GTPBindAddr == "" {
+	if factory.N3iwfConfig.Configuration.GtpBindAddress == "" {
 		logger.ContextLog.Errorln("GTP bind address is empty")
 		return false
 	} else {
-		n3iwfContext.GTPBindAddress = factory.N3iwfConfig.Configuration.GTPBindAddr
+		n3iwfContext.GtpBindAddress = factory.N3iwfConfig.Configuration.GtpBindAddress
 	}
 
 	// TCP port
-	if factory.N3iwfConfig.Configuration.TCPPort == 0 {
+	if factory.N3iwfConfig.Configuration.TcpPort == 0 {
 		logger.ContextLog.Errorln("TCP port is not defined")
 		return false
 	} else {
-		n3iwfContext.TCPPort = factory.N3iwfConfig.Configuration.TCPPort
+		n3iwfContext.TcpPort = factory.N3iwfConfig.Configuration.TcpPort
 	}
 
 	// FQDN
-	if factory.N3iwfConfig.Configuration.FQDN == "" {
+	if factory.N3iwfConfig.Configuration.Fqdn == "" {
 		logger.ContextLog.Errorln("FQDN is empty")
 		return false
 	} else {
-		n3iwfContext.FQDN = factory.N3iwfConfig.Configuration.FQDN
+		n3iwfContext.Fqdn = factory.N3iwfConfig.Configuration.Fqdn
 	}
 
 	// Private key
@@ -140,7 +140,7 @@ func InitN3IWFContext() bool {
 			return false
 		}
 
-		n3iwfContext.N3IWFPrivateKey = rsaKey
+		n3iwfContext.N3iwfPrivateKey = rsaKey
 	}
 
 	// Certificate authority
@@ -204,20 +204,20 @@ func InitN3IWFContext() bool {
 			return false
 		}
 
-		n3iwfContext.N3IWFCertificate = block.Bytes
+		n3iwfContext.N3iwfCertificate = block.Bytes
 	}
 
 	// UE IP address range
-	if factory.N3iwfConfig.Configuration.UEIPAddressRange == "" {
+	if factory.N3iwfConfig.Configuration.UeIpNetwork == "" {
 		logger.ContextLog.Errorln("UE IP address range is empty")
 		return false
 	} else {
-		_, ueIPRange, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.UEIPAddressRange)
+		_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.UeIpNetwork)
 		if err != nil {
 			logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
 			return false
 		}
-		n3iwfContext.Subnet = ueIPRange
+		n3iwfContext.Subnet = ueNetworkAddr
 	}
 
 	if factory.N3iwfConfig.Configuration.InterfaceMark == 0 {
@@ -230,52 +230,52 @@ func InitN3IWFContext() bool {
 	return true
 }
 
-func formatSupportedTAList(info *context.N3IWFNFInfo) bool {
-	for taListIndex := range info.SupportedTAList {
-		supportedTAItem := &info.SupportedTAList[taListIndex]
+func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
+	for taListIndex := range info.SupportedTaList {
+		supportedTAItem := &info.SupportedTaList[taListIndex]
 
-		// Checking TAC
-		if supportedTAItem.TAC == "" {
-			logger.ContextLog.Errorln("TAC is mandatory")
+		// Checking Tac
+		if supportedTAItem.Tac == "" {
+			logger.ContextLog.Errorln("Tac is mandatory")
 			return false
 		}
-		if len(supportedTAItem.TAC) < 6 {
-			logger.ContextLog.Debugln("detect configuration TAC length < 6")
-			supportedTAItem.TAC = strings.Repeat("0", 6-len(supportedTAItem.TAC)) + supportedTAItem.TAC
-			logger.ContextLog.Debugf("changed to %s", supportedTAItem.TAC)
-		} else if len(supportedTAItem.TAC) > 6 {
-			logger.ContextLog.Errorln("detect configuration TAC length > 6")
+		if len(supportedTAItem.Tac) < 6 {
+			logger.ContextLog.Debugln("detect configuration Tac length < 6")
+			supportedTAItem.Tac = strings.Repeat("0", 6-len(supportedTAItem.Tac)) + supportedTAItem.Tac
+			logger.ContextLog.Debugf("changed to %s", supportedTAItem.Tac)
+		} else if len(supportedTAItem.Tac) > 6 {
+			logger.ContextLog.Errorln("detect configuration Tac length > 6")
 			return false
 		}
 
-		// Checking SST and SD
+		// Checking Sst and Sd
 		for plmnListIndex := range supportedTAItem.BroadcastPLMNList {
 			broadcastPLMNItem := &supportedTAItem.BroadcastPLMNList[plmnListIndex]
 
-			for sliceListIndex := range broadcastPLMNItem.TAISliceSupportList {
-				sliceSupportItem := &broadcastPLMNItem.TAISliceSupportList[sliceListIndex]
+			for sliceListIndex := range broadcastPLMNItem.TaiSliceSupportList {
+				sliceSupportItem := &broadcastPLMNItem.TaiSliceSupportList[sliceListIndex]
 
-				// SST
-				if sliceSupportItem.SNSSAI.SST == "" {
-					logger.ContextLog.Errorln("SST is mandatory")
+				// Sst
+				if sliceSupportItem.Snssai.Sst == "" {
+					logger.ContextLog.Errorln("Sst is mandatory")
 				}
-				if len(sliceSupportItem.SNSSAI.SST) < 2 {
-					logger.ContextLog.Debugln("detect configuration SST length < 2")
-					sliceSupportItem.SNSSAI.SST = "0" + sliceSupportItem.SNSSAI.SST
-					logger.ContextLog.Debugf("change to %s", sliceSupportItem.SNSSAI.SST)
-				} else if len(sliceSupportItem.SNSSAI.SST) > 2 {
-					logger.ContextLog.Errorln("detect configuration SST length > 2")
+				if len(sliceSupportItem.Snssai.Sst) < 2 {
+					logger.ContextLog.Debugln("detect configuration Sst length < 2")
+					sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
+					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
+				} else if len(sliceSupportItem.Snssai.Sst) > 2 {
+					logger.ContextLog.Errorln("detect configuration Sst length > 2")
 					return false
 				}
 
-				// SD
-				if sliceSupportItem.SNSSAI.SD != "" {
-					if len(sliceSupportItem.SNSSAI.SD) < 6 {
-						logger.ContextLog.Debugln("detect configuration SD length < 6")
-						sliceSupportItem.SNSSAI.SD = strings.Repeat("0", 6-len(sliceSupportItem.SNSSAI.SD)) + sliceSupportItem.SNSSAI.SD
-						logger.ContextLog.Debugf("change to %s", sliceSupportItem.SNSSAI.SD)
-					} else if len(sliceSupportItem.SNSSAI.SD) > 6 {
-						logger.ContextLog.Errorln("detect configuration SD length > 6")
+				// Sd
+				if sliceSupportItem.Snssai.Sd != "" {
+					if len(sliceSupportItem.Snssai.Sd) < 6 {
+						logger.ContextLog.Debugln("detect configuration Sd length < 6")
+						sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-len(sliceSupportItem.Snssai.Sd)) + sliceSupportItem.Snssai.Sd
+						logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
+					} else if len(sliceSupportItem.Snssai.Sd) > 6 {
+						logger.ContextLog.Errorln("detect configuration Sd length > 6")
 						return false
 					}
 				}

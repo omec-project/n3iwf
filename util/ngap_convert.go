@@ -16,7 +16,7 @@ import (
 	"github.com/omec-project/ngap/ngapType"
 )
 
-func PlmnIdToNgap(plmnId context.PLMNID) (ngapPlmnId ngapType.PLMNIdentity) {
+func PlmnIdToNgap(plmnId context.PlmnId) (ngapPlmnId ngapType.PLMNIdentity) {
 	var hexString string
 	mcc := strings.Split(plmnId.Mcc, "")
 	mnc := strings.Split(plmnId.Mnc, "")

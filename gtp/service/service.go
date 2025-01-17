@@ -29,7 +29,7 @@ func SetupGTPTunnelWithUPF(upfIPAddr string) (*gtpv1.UPlaneConn, net.Addr, error
 		return nil, nil, errors.New("resolve Address Failed")
 	}
 
-	n3iwfUDPAddr := n3iwfSelf.GTPBindAddress + ":2152"
+	n3iwfUDPAddr := n3iwfSelf.GtpBindAddress + ":2152"
 
 	localUDPAddr, err := net.ResolveUDPAddr("udp", n3iwfUDPAddr)
 	if err != nil {

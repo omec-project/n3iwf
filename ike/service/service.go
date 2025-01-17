@@ -16,7 +16,7 @@ import (
 
 func Run() error {
 	// Resolve UDP addresses
-	ip := context.N3IWFSelf().IKEBindAddress
+	ip := context.N3IWFSelf().IkeBindAddress
 	udpAddrPort500, err := net.ResolveUDPAddr("udp", ip+":500")
 	if err != nil {
 		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)

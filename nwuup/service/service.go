@@ -21,7 +21,7 @@ import (
 func Run() error {
 	// Local IPSec address
 	n3iwfSelf := context.N3IWFSelf()
-	listenAddr := n3iwfSelf.IPSecGatewayAddress
+	listenAddr := n3iwfSelf.IpSecGatewayAddress
 
 	// Setup IPv4 packet connection socket
 	// This socket will only capture GRE encapsulated packet

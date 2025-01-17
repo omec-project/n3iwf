@@ -1569,7 +1569,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 				ikeSecurityAssociation.ConcatenatedNonce = nonceData
 
 				// TSi
-				n3iwfIPAddr := net.ParseIP(n3iwfSelf.IPSecGatewayAddress)
+				n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
 				tsi := ikePayload.BuildTrafficSelectorInitiator()
 				tsi.TrafficSelectors.BuildIndividualTrafficSelector(
 					ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
@@ -1585,7 +1585,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 				ikePayload.BuildNotify5G_QOS_INFO(uint8(pduSessionID), pduSession.QFIList, true, false, 0)
 
 				// Notify-UP_IP_ADDRESS
-				ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IPSecGatewayAddress)
+				ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
 
 				if err := handler.EncryptProcedure(
 					n3iwfUe.N3IWFIKESecurityAssociation, ikePayload, ikeMessage); err != nil {

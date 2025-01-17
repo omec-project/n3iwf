@@ -5,42 +5,42 @@
 
 package context
 
-type N3IWFNFInfo struct {
-	GlobalN3IWFID   GlobalN3IWFID     `yaml:"GlobalN3IWFID"`
-	RanNodeName     string            `yaml:"Name,omitempty"`
-	SupportedTAList []SupportedTAItem `yaml:"SupportedTAList"`
+type N3iwfNfInfo struct {
+	GlobalN3iwfId   GlobalN3iwfId     `yaml:"globalN3iwfId"`
+	RanNodeName     string            `yaml:"name,omitempty"`
+	SupportedTaList []SupportedTAItem `yaml:"supportedTaList"`
 }
 
-type GlobalN3IWFID struct {
-	PLMNID  PLMNID `yaml:"PLMNID"`
-	N3IWFID uint16 `yaml:"N3IWFID"` // with length 2 bytes
+type GlobalN3iwfId struct {
+	PlmnId  PlmnId `yaml:"plmnId"`
+	N3iwfId uint16 `yaml:"n3iwfId"` // with length 2 bytes
 }
 
 type SupportedTAItem struct {
-	TAC               string              `yaml:"TAC"`
-	BroadcastPLMNList []BroadcastPLMNItem `yaml:"BroadcastPLMNList"`
+	Tac               string              `yaml:"tac"`
+	BroadcastPLMNList []BroadcastPlmnItem `yaml:"broadcastPlmnList"`
 }
 
-type BroadcastPLMNItem struct {
-	PLMNID              PLMNID             `yaml:"PLMNID"`
-	TAISliceSupportList []SliceSupportItem `yaml:"TAISliceSupportList"`
+type BroadcastPlmnItem struct {
+	PlmnId              PlmnId             `yaml:"plmnId"`
+	TaiSliceSupportList []SliceSupportItem `yaml:"taiSliceSupportList"`
 }
 
-type PLMNID struct {
-	Mcc string `yaml:"MCC"`
-	Mnc string `yaml:"MNC"`
+type PlmnId struct {
+	Mcc string `yaml:"mcc"`
+	Mnc string `yaml:"mnc"`
 }
 
 type SliceSupportItem struct {
-	SNSSAI SNSSAIItem `yaml:"SNSSAI"`
+	Snssai SnssaiItem `yaml:"snssai"`
 }
 
-type SNSSAIItem struct {
-	SST string `yaml:"SST"`
-	SD  string `yaml:"SD,omitempty"`
+type SnssaiItem struct {
+	Sst string `yaml:"sst"`
+	Sd  string `yaml:"sd,omitempty"`
 }
 
-type AMFSCTPAddresses struct {
-	IPAddresses []string `yaml:"IP"`
-	Port        int      `yaml:"Port,omitempty"`
+type AmfSctpAddresses struct {
+	IpAddresses []string `yaml:"ipList"`
+	Port        int      `yaml:"port,omitempty"`
 }

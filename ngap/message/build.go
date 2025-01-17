@@ -46,9 +46,9 @@ func BuildNGSetupRequest() ([]byte, error) {
 	globalRANNodeID.GlobalN3IWFID = new(ngapType.GlobalN3IWFID)
 
 	globalN3IWFID := globalRANNodeID.GlobalN3IWFID
-	globalN3IWFID.PLMNIdentity = util.PlmnIdToNgap(n3iwfSelf.NFInfo.GlobalN3IWFID.PLMNID)
+	globalN3IWFID.PLMNIdentity = util.PlmnIdToNgap(n3iwfSelf.NfInfo.GlobalN3iwfId.PlmnId)
 	globalN3IWFID.N3IWFID.Present = ngapType.N3IWFIDPresentN3IWFID
-	globalN3IWFID.N3IWFID.N3IWFID = util.N3iwfIdToNgap(n3iwfSelf.NFInfo.GlobalN3IWFID.N3IWFID)
+	globalN3IWFID.N3IWFID.N3IWFID = util.N3iwfIdToNgap(n3iwfSelf.NfInfo.GlobalN3iwfId.N3iwfId)
 	nGSetupRequestIEs.List = append(nGSetupRequestIEs.List, ie)
 
 	// RANNodeName
@@ -59,7 +59,7 @@ func BuildNGSetupRequest() ([]byte, error) {
 	ie.Value.RANNodeName = new(ngapType.RANNodeName)
 
 	rANNodeName := ie.Value.RANNodeName
-	rANNodeName.Value = n3iwfSelf.NFInfo.RanNodeName
+	rANNodeName.Value = n3iwfSelf.NfInfo.RanNodeName
 	nGSetupRequestIEs.List = append(nGSetupRequestIEs.List, ie)
 	// SupportedTAList
 	ie = ngapType.NGSetupRequestIEs{}
@@ -70,11 +70,11 @@ func BuildNGSetupRequest() ([]byte, error) {
 
 	supportedTAList := ie.Value.SupportedTAList
 
-	for _, supportedTAItemLocal := range n3iwfSelf.NFInfo.SupportedTAList {
+	for _, supportedTAItemLocal := range n3iwfSelf.NfInfo.SupportedTaList {
 		// SupportedTAItem in SupportedTAList
 		supportedTAItem := ngapType.SupportedTAItem{}
 		var err error
-		supportedTAItem.TAC.Value, err = hex.DecodeString(supportedTAItemLocal.TAC)
+		supportedTAItem.TAC.Value, err = hex.DecodeString(supportedTAItemLocal.Tac)
 		if err != nil {
 			logger.NgapLog.Errorf("decode string error: %+v", err)
 		}
@@ -84,21 +84,21 @@ func BuildNGSetupRequest() ([]byte, error) {
 		for _, broadcastPLMNListLocal := range supportedTAItemLocal.BroadcastPLMNList {
 			// BroadcastPLMNItem in BroadcastPLMNList
 			broadcastPLMNItem := ngapType.BroadcastPLMNItem{}
-			broadcastPLMNItem.PLMNIdentity = util.PlmnIdToNgap(broadcastPLMNListLocal.PLMNID)
+			broadcastPLMNItem.PLMNIdentity = util.PlmnIdToNgap(broadcastPLMNListLocal.PlmnId)
 
 			sliceSupportList := &broadcastPLMNItem.TAISliceSupportList
 
-			for _, sliceSupportItemLocal := range broadcastPLMNListLocal.TAISliceSupportList {
+			for _, sliceSupportItemLocal := range broadcastPLMNListLocal.TaiSliceSupportList {
 				// SliceSupportItem in SliceSupportList
 				sliceSupportItem := ngapType.SliceSupportItem{}
-				sliceSupportItem.SNSSAI.SST.Value, err = hex.DecodeString(sliceSupportItemLocal.SNSSAI.SST)
+				sliceSupportItem.SNSSAI.SST.Value, err = hex.DecodeString(sliceSupportItemLocal.Snssai.Sst)
 				if err != nil {
 					logger.NgapLog.Errorf("decode string error: %+v", err)
 				}
 
-				if sliceSupportItemLocal.SNSSAI.SD != "" {
+				if sliceSupportItemLocal.Snssai.Sd != "" {
 					sliceSupportItem.SNSSAI.SD = new(ngapType.SD)
-					sliceSupportItem.SNSSAI.SD.Value, err = hex.DecodeString(sliceSupportItemLocal.SNSSAI.SD)
+					sliceSupportItem.SNSSAI.SD.Value, err = hex.DecodeString(sliceSupportItemLocal.Snssai.Sd)
 					if err != nil {
 						logger.NgapLog.Errorf("decode string error: %+v", err)
 					}
@@ -1631,7 +1631,7 @@ func BuildRANConfigurationUpdate() ([]byte, error) {
 	n3iwfSelf := context.N3IWFSelf()
 
 	// RANNodeName
-	if n3iwfSelf.NFInfo.RanNodeName != "" {
+	if n3iwfSelf.NfInfo.RanNodeName != "" {
 		ie := ngapType.RANConfigurationUpdateIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDRANNodeName
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
@@ -1639,12 +1639,12 @@ func BuildRANConfigurationUpdate() ([]byte, error) {
 		ie.Value.RANNodeName = new(ngapType.RANNodeName)
 
 		rANNodeName := ie.Value.RANNodeName
-		rANNodeName.Value = n3iwfSelf.NFInfo.RanNodeName
+		rANNodeName.Value = n3iwfSelf.NfInfo.RanNodeName
 
 		rANConfigurationUpdateIEs.List = append(rANConfigurationUpdateIEs.List, ie)
 	}
 	// SupportedTAList
-	if len(n3iwfSelf.NFInfo.SupportedTAList) > 0 {
+	if len(n3iwfSelf.NfInfo.SupportedTaList) > 0 {
 		ie := ngapType.RANConfigurationUpdateIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDSupportedTAList
 		ie.Criticality.Value = ngapType.CriticalityPresentReject
@@ -1653,11 +1653,11 @@ func BuildRANConfigurationUpdate() ([]byte, error) {
 
 		supportedTAList := ie.Value.SupportedTAList
 
-		for _, supportedTAItemLocal := range n3iwfSelf.NFInfo.SupportedTAList {
+		for _, supportedTAItemLocal := range n3iwfSelf.NfInfo.SupportedTaList {
 			// SupportedTAItem in SupportedTAList
 			supportedTAItem := ngapType.SupportedTAItem{}
 			var err error
-			supportedTAItem.TAC.Value, err = hex.DecodeString(supportedTAItemLocal.TAC)
+			supportedTAItem.TAC.Value, err = hex.DecodeString(supportedTAItemLocal.Tac)
 			if err != nil {
 				logger.NgapLog.Errorf("decode string error: %+v", err)
 			}
@@ -1667,21 +1667,21 @@ func BuildRANConfigurationUpdate() ([]byte, error) {
 			for _, broadcastPLMNListLocal := range supportedTAItemLocal.BroadcastPLMNList {
 				// BroadcastPLMNItem in BroadcastPLMNList
 				broadcastPLMNItem := ngapType.BroadcastPLMNItem{}
-				broadcastPLMNItem.PLMNIdentity = util.PlmnIdToNgap(broadcastPLMNListLocal.PLMNID)
+				broadcastPLMNItem.PLMNIdentity = util.PlmnIdToNgap(broadcastPLMNListLocal.PlmnId)
 
 				sliceSupportList := &broadcastPLMNItem.TAISliceSupportList
 
-				for _, sliceSupportItemLocal := range broadcastPLMNListLocal.TAISliceSupportList {
+				for _, sliceSupportItemLocal := range broadcastPLMNListLocal.TaiSliceSupportList {
 					// SliceSupportItem in SliceSupportList
 					sliceSupportItem := ngapType.SliceSupportItem{}
-					sliceSupportItem.SNSSAI.SST.Value, err = hex.DecodeString(sliceSupportItemLocal.SNSSAI.SST)
+					sliceSupportItem.SNSSAI.SST.Value, err = hex.DecodeString(sliceSupportItemLocal.Snssai.Sst)
 					if err != nil {
 						logger.NgapLog.Errorf("decode string error: %+v", err)
 					}
 
-					if sliceSupportItemLocal.SNSSAI.SD != "" {
+					if sliceSupportItemLocal.Snssai.Sd != "" {
 						sliceSupportItem.SNSSAI.SD = new(ngapType.SD)
-						sliceSupportItem.SNSSAI.SD.Value, err = hex.DecodeString(sliceSupportItemLocal.SNSSAI.SD)
+						sliceSupportItem.SNSSAI.SD.Value, err = hex.DecodeString(sliceSupportItemLocal.Snssai.Sd)
 						if err != nil {
 							logger.NgapLog.Errorf("decode string error: %+v", err)
 						}
@@ -1757,7 +1757,7 @@ func BuildPDUSessionResourceSetupResponseTransfer(pduSession *context.PDUSession
 	teid := make([]byte, 4)
 	binary.BigEndian.PutUint32(teid, pduSession.GTPConnection.IncomingTEID)
 	gtpTunnel.GTPTEID.Value = teid
-	gtpTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(n3iwfSelf.GTPBindAddress, "")
+	gtpTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(n3iwfSelf.GtpBindAddress, "")
 
 	// Associated Qos Flow List
 	for _, qfi := range pduSession.QFIList {

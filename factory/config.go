@@ -26,19 +26,18 @@ type Info struct {
 }
 
 type Configuration struct {
-	N3IWFInfo        context.N3IWFNFInfo        `yaml:"N3IWFInformation"`
-	AMFSCTPAddresses []context.AMFSCTPAddresses `yaml:"AMFSCTPAddresses"`
-
-	IKEBindAddr          string `yaml:"IKEBindAddress"`
-	IPSecGatewayAddr     string `yaml:"IPSecInterfaceAddress"`
-	GTPBindAddr          string `yaml:"GTPBindAddress"`
-	TCPPort              uint16 `yaml:"NASTCPPort"`
-	FQDN                 string `yaml:"FQDN"`                 // e.g. n3iwf.free5gc.org
-	PrivateKey           string `yaml:"PrivateKey"`           // file path
-	CertificateAuthority string `yaml:"CertificateAuthority"` // file path
-	Certificate          string `yaml:"Certificate"`          // file path
-	UEIPAddressRange     string `yaml:"UEIPAddressRange"`     // e.g. 10.0.1.0/24
-	InterfaceMark        uint32 `yaml:"IPSecInterfaceMark"`   // must != 0, if not specified, random one
+	N3iwfInfo            context.N3iwfNfInfo        `yaml:"n3iwfInformation"`
+	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
+	IkeBindAddress       string                     `yaml:"ikeBindAddress"`
+	IpSecAddress         string                     `yaml:"ipSecAddress"`
+	GtpBindAddress       string                     `yaml:"gtpBindAddress"`
+	TcpPort              uint16                     `yaml:"nasTcpPort"`
+	Fqdn                 string                     `yaml:"fqdn"`                 // e.g. n3iwf.aether.org
+	PrivateKey           string                     `yaml:"privateKey"`           // file path
+	CertificateAuthority string                     `yaml:"certificateAuthority"` // file path
+	Certificate          string                     `yaml:"certificate"`          // file path
+	UeIpNetwork          string                     `yaml:"ueIpNetwork"`          // e.g. 10.0.1.0/24
+	InterfaceMark        uint32                     `yaml:"ipSecInterfaceMark"`   // must be != 0, if not specified, set to `7`
 }
 
 func (c *Config) GetVersion() string {
