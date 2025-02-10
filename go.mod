@@ -12,7 +12,7 @@ require (
 	github.com/wmnsk/go-gtp v0.7.4
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.34.0
-	golang.org/x/sys v0.29.0
+	golang.org/x/sys v0.30.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
