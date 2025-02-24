@@ -6,7 +6,7 @@ require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
 	github.com/omec-project/aper v1.2.2
 	github.com/omec-project/ngap v1.3.1
-	github.com/omec-project/util v1.2.12
+	github.com/omec-project/util v1.2.13
 	github.com/urfave/cli v1.22.16
 	github.com/vishvananda/netlink v1.3.0
 	github.com/wmnsk/go-gtp v0.7.4
