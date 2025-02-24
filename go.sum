@@ -102,8 +102,8 @@ github.com/omec-project/ngap v1.3.1 h1:I4qdtCWcheJW2g2UH5C6zP4gVlzoZWDy7f5sJLuoM
 github.com/omec-project/ngap v1.3.1/go.mod h1:Ue2JCE1nzjC2sofyhnIKSDu5rZ0VFNTGlFgbuwHSajY=
 github.com/omec-project/openapi v1.3.1 h1:NCteMRdMtWnMhf1CXYduuLgeu8fEhc/7XO1CiE7fN3Y=
 github.com/omec-project/openapi v1.3.1/go.mod h1:cR6Iharp2TLOzEmskQ/EdCVFZnpKh0zTvUSSuyXAYLE=
-github.com/omec-project/util v1.2.12 h1:qpYE8LOc21oNpS4k/vauCrC0rUK9ddGvSV8xCA0092Q=
-github.com/omec-project/util v1.2.12/go.mod h1:P+WFVCtuLfsrfTgWZLaR5S6QCnA94PT7KdV6KSAFbw8=
+github.com/omec-project/util v1.2.13 h1:aeeeqRTlVITrtNnlrKuzhn4dMJP9uaE73cpYtGiAqfM=
+github.com/omec-project/util v1.2.13/go.mod h1:9Om0eXG8HyQ2wQD6Z9IWarFtcVSLQgAG6uZPQlmGADc=
 github.com/pascaldekloe/goe v0.1.0 h1:cBOtyMzM9HTpWjXfbbunk26uA6nG3a8n06Wieeh0MwY=
 github.com/pascaldekloe/goe v0.1.0/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
 github.com/pelletier/go-toml/v2 v2.2.2 h1:aYUidT7k73Pcl9nb2gScu7NSrKCSHIDE89b3+6Wq+LM=
