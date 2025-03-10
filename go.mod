@@ -1,7 +1,6 @@
 module github.com/omec-project/n3iwf
 
 go 1.23
-
 require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
 	github.com/omec-project/aper v1.2.2
@@ -12,7 +11,7 @@ require (
 	github.com/wmnsk/go-gtp v0.7.4
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.35.0
-	golang.org/x/sys v0.30.0
+	golang.org/x/sys v0.31.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
