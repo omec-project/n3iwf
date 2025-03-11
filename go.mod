@@ -1,18 +1,18 @@
 module github.com/omec-project/n3iwf
 
-go 1.23
+go 1.23.0
 
 require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
-	github.com/omec-project/aper v1.2.2
-	github.com/omec-project/ngap v1.3.1
-	github.com/omec-project/util v1.2.13
+	github.com/omec-project/aper v1.2.3
+	github.com/omec-project/ngap v1.3.2
+	github.com/omec-project/util v1.2.14
 	github.com/urfave/cli v1.22.16
 	github.com/vishvananda/netlink v1.3.0
 	github.com/wmnsk/go-gtp v0.7.4
 	go.uber.org/zap v1.27.0
-	golang.org/x/net v0.35.0
-	golang.org/x/sys v0.30.0
+	golang.org/x/net v0.37.0
+	golang.org/x/sys v0.31.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -37,7 +37,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/omec-project/openapi v1.3.1 // indirect
+	github.com/omec-project/openapi v1.3.4 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
@@ -46,8 +46,8 @@ require (
 	github.com/vishvananda/netns v0.0.4 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
