@@ -28,6 +28,7 @@ type Info struct {
 type Configuration struct {
 	N3iwfInfo            context.N3iwfNfInfo        `yaml:"n3iwfInformation"`
 	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
+	LocalSctpAddress     string                     `yaml:"localSctpAddress"`
 	IkeBindAddress       string                     `yaml:"ikeBindAddress"`
 	IpSecAddress         string                     `yaml:"ipSecAddress"`
 	GtpBindAddress       string                     `yaml:"gtpBindAddress"`

@@ -20,6 +20,8 @@ import (
 	"github.com/omec-project/n3iwf/logger"
 )
 
+const NGAP_SCTP_PORT int = 38412
+
 func InitN3IWFContext() bool {
 	var ok bool
 
@@ -54,13 +56,32 @@ func InitN3IWFContext() bool {
 			}
 			// Port
 			if amfAddress.Port == 0 {
-				amfSCTPAddr.Port = 38412
+				amfSCTPAddr.Port = NGAP_SCTP_PORT
 			} else {
 				amfSCTPAddr.Port = amfAddress.Port
 			}
 			// Append to context
 			n3iwfContext.AmfSctpAddresses = append(n3iwfContext.AmfSctpAddresses, amfSCTPAddr)
 		}
+	}
+
+	// Local SCTP address
+	if factory.N3iwfConfig.Configuration.LocalSctpAddress == "" {
+		logger.ContextLog.Errorln("Local SCTP bind address is empty")
+		return false
+	} else {
+		localSCTPAddr := new(sctp.SCTPAddr)
+		// IP address
+		ipAddrStr := factory.N3iwfConfig.Configuration.LocalSctpAddress
+		if ipAddr, err := net.ResolveIPAddr("ip", ipAddrStr); err != nil {
+			logger.ContextLog.Errorf("resolve local IP address for N2 failed: %+v", err)
+			return false
+		} else {
+			localSCTPAddr.IPAddrs = append(localSCTPAddr.IPAddrs, *ipAddr)
+		}
+		// Port
+		localSCTPAddr.Port = NGAP_SCTP_PORT
+		n3iwfContext.LocalSctpAddress = localSCTPAddr
 	}
 
 	// IKE bind address
