@@ -26,6 +26,7 @@ var n3iwfContext = N3IWFContext{}
 type N3IWFContext struct {
 	NfInfo           N3iwfNfInfo
 	AmfSctpAddresses []*sctp.SCTPAddr
+	LocalSctpAddress *sctp.SCTPAddr
 
 	// ID generator
 	RanUuNgapIdGenerator *idgenerator.IDGenerator

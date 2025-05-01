@@ -20,12 +20,9 @@ import (
 
 // Run start the N3IWF SCTP process.
 func Run() error {
-	// n3iwf context
 	n3iwfSelf := context.N3IWFSelf()
-	// load amf SCTP address slice
 	amfSCTPAddresses := n3iwfSelf.AmfSctpAddresses
-
-	localAddr := new(sctp.SCTPAddr)
+	localAddr := n3iwfSelf.LocalSctpAddress
 
 	for _, remoteAddr := range amfSCTPAddresses {
 		errChan := make(chan error)
