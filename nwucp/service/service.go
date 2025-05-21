@@ -37,9 +37,9 @@ func Run() error {
 	return nil
 }
 
-// listenAndServe handle TCP listener and accept incoming
+// listenAndServe handles TCP listener and accepts incoming
 // requests. It also stores accepted connection into UE
-// context, and finally, call serveConn() to serve the messages
+// context, and finally, calls serveConn() to serve the messages
 // received from the connection.
 func listenAndServe(tcpListener net.Listener) {
 	defer func() {
@@ -58,7 +58,7 @@ func listenAndServe(tcpListener net.Listener) {
 
 		logger.NWuCPLog.Debugf("accepted one UE from %+v", connection.RemoteAddr())
 
-		// Find UE context and store this connection in to it, then check if
+		// Find UE context and store this connection into it, then check if
 		// there is any cached NAS message for this UE. If yes, send to it.
 		n3iwfSelf := context.N3IWFSelf()
 
@@ -75,7 +75,7 @@ func listenAndServe(tcpListener net.Listener) {
 		if ue.TemporaryCachedNASMessage != nil {
 			// Send to UE
 			if n, err := connection.Write(ue.TemporaryCachedNASMessage); err != nil {
-				logger.NWuCPLog.Errorf("writing via IPSec signalling SA failed: %+v", err)
+				logger.NWuCPLog.Errorf("writing via IPSec signaling SA failed: %+v", err)
 			} else {
 				logger.NWuCPLog.Debugln("forward NWu <- N2")
 				logger.NWuCPLog.Debugf("wrote %d bytes", n)
@@ -88,9 +88,9 @@ func listenAndServe(tcpListener net.Listener) {
 	}
 }
 
-// serveConn handle accepted TCP connection. It reads NAS packets
-// from the connection and call forward() to forward NAS messages
-// to AMF
+// serveConn handles accepted TCP connections. It reads NAS packets
+// from the connection and calls forward() to forward NAS messages
+// to AMF.
 func serveConn(ue *context.N3IWFUe, connection net.Conn) {
 	defer func() {
 		err := connection.Close()

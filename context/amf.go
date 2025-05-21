@@ -123,9 +123,9 @@ func (amf *N3IWFAMF) StopOverload() {
 	amf.AMFOverloadContent = nil
 }
 
-// FindAvalibleAMFByCompareGUAMI compares the incoming GUAMI with AMF served GUAMI
-// and return if this AMF is avalible for UE
-func (amf *N3IWFAMF) FindAvalibleAMFByCompareGUAMI(ueSpecifiedGUAMI *ngapType.GUAMI) bool {
+// FindAvailableAMFByCompareGUAMI compares the incoming GUAMI with AMF served GUAMI
+// and returns if this AMF is available for UE
+func (amf *N3IWFAMF) FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI *ngapType.GUAMI) bool {
 	for _, amfServedGUAMI := range amf.ServedGUAMIList.List {
 		codedAMFServedGUAMI, err := aper.MarshalWithParams(&amfServedGUAMI.GUAMI, "valueExt")
 		if err != nil {

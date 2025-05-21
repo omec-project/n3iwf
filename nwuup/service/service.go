@@ -15,9 +15,8 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-// Run bind and listen IPv4 packet connection on N3IWF NWu interface
-// with UP_IP_ADDRESS, catching GRE encapsulated packets and forward
-// to N3 interface.
+// Run bind and listen IPv4 packet connection on N3IWF NWu interface with
+// UP_IP_ADDRESS, catching GRE encapsulated packets and forward to N3 interface.
 func Run() error {
 	// Local IPSec address
 	n3iwfSelf := context.N3IWFSelf()
@@ -42,8 +41,7 @@ func Run() error {
 	return nil
 }
 
-// listenAndServe read from socket and call forward() to
-// forward packet.
+// listenAndServe reads from socket and calls forward() to forward packets
 func listenAndServe(ipv4PacketConn *ipv4.PacketConn) {
 	defer func() {
 		err := ipv4PacketConn.Close()
@@ -69,8 +67,8 @@ func listenAndServe(ipv4PacketConn *ipv4.PacketConn) {
 	}
 }
 
-// forward forwards user plane packets from NWu to UPF
-// with GTP header encapsulated
+// forward forwards user plane packets from NWu to UPF with GTP header
+// encapsulated
 func forward(ueInnerIP string, packet []byte) {
 	// Find UE information
 	self := context.N3IWFSelf()

@@ -206,7 +206,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, messa
 
 		localPublicValue, sharedKeyData = CalculateDiffieHellmanMaterials(GenerateRandomNumber(),
 			keyExcahge.KeyExchangeData, chosenDiffieHellmanGroup)
-		responseIKEMessage.Payloads.BUildKeyExchange(chosenDiffieHellmanGroup, localPublicValue)
+		responseIKEMessage.Payloads.BuildKeyExchange(chosenDiffieHellmanGroup, localPublicValue)
 	} else {
 		logger.IKELog.Errorln("the key exchange field is nil")
 		// TODO: send error message to UE
@@ -779,7 +779,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 					logger.IKELog.Errorf("generate random uint8 failed: %+v", err)
 					return
 				}
-				responseIKEPayload.BuildEAPfailure(identifier)
+				responseIKEPayload.BuildEAPFailure(identifier)
 
 				if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
 					logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
@@ -1036,7 +1036,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			return
 		}
 
-		// Aplly XFRM rules
+		// Apply XFRM rules
 		if err = ApplyXFRMRule(false, childSecurityAssociationContext); err != nil {
 			logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 			return
@@ -1322,7 +1322,7 @@ func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 		childSecurityAssociationContext.NATPort = ueAddr.Port
 	}
 
-	// Aplly XFRM rules
+	// Apply XFRM rules
 	if err = ApplyXFRMRule(true, childSecurityAssociationContext); err != nil {
 		logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 		return

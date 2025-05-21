@@ -15,8 +15,8 @@ import (
 	gtpv1 "github.com/wmnsk/go-gtp/v1"
 )
 
-// SetupGTPTunnelWithUPF set up GTP connection with UPF
-// return *gtpv1.UPlaneConn, net.Addr and error
+// SetupGTPTunnelWithUPF sets up GTP connection with UPF
+// returns *gtpv1.UPlaneConn, net.Addr and error
 func SetupGTPTunnelWithUPF(upfIPAddr string) (*gtpv1.UPlaneConn, net.Addr, error) {
 	n3iwfSelf := n3iwf_context.N3IWFSelf()
 
@@ -50,14 +50,14 @@ func SetupGTPTunnelWithUPF(upfIPAddr string) (*gtpv1.UPlaneConn, net.Addr, error
 }
 
 // ListenAndServe binds and listens user plane socket on N3IWF N3 interface,
-// catching GTP packets and send it to NWu interface
+// catches GTP packets and sends them to NWu interface
 func ListenAndServe(userPlaneConnection *gtpv1.UPlaneConn) error {
 	go listenGTP(userPlaneConnection)
 	return nil
 }
 
-// listenGTP handle the gtpv1 UPlane connection. It reads packets(without
-// GTP header) from the connection and call forward() to forward user data
+// listenGTP handles the gtpv1 UPlane connection. It reads packets (without
+// GTP header) from the connection and calls forward() to forward user data
 // to NWu interface.
 func listenGTP(userPlaneConnection *gtpv1.UPlaneConn) {
 	defer func() {
