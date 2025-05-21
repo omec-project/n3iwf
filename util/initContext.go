@@ -151,7 +151,7 @@ func InitN3IWFContext() bool {
 
 			key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 			if err != nil {
-				logger.ContextLog.Errorf("parse PKCS1 pricate key failed: %+v", err)
+				logger.ContextLog.Errorf("parse PKCS1 private key failed: %+v", err)
 				return false
 			}
 		}
@@ -261,11 +261,11 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 			return false
 		}
 		if len(supportedTAItem.Tac) < 6 {
-			logger.ContextLog.Debugln("detect configuration Tac length < 6")
+			logger.ContextLog.Debugln("detected configuration Tac length < 6")
 			supportedTAItem.Tac = strings.Repeat("0", 6-len(supportedTAItem.Tac)) + supportedTAItem.Tac
 			logger.ContextLog.Debugf("changed to %s", supportedTAItem.Tac)
 		} else if len(supportedTAItem.Tac) > 6 {
-			logger.ContextLog.Errorln("detect configuration Tac length > 6")
+			logger.ContextLog.Errorln("detected configuration Tac length > 6")
 			return false
 		}
 
@@ -281,22 +281,22 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 					logger.ContextLog.Errorln("Sst is mandatory")
 				}
 				if len(sliceSupportItem.Snssai.Sst) < 2 {
-					logger.ContextLog.Debugln("detect configuration Sst length < 2")
+					logger.ContextLog.Debugln("detected configuration Sst length < 2")
 					sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
 					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
 				} else if len(sliceSupportItem.Snssai.Sst) > 2 {
-					logger.ContextLog.Errorln("detect configuration Sst length > 2")
+					logger.ContextLog.Errorln("detected configuration Sst length > 2")
 					return false
 				}
 
 				// Sd
 				if sliceSupportItem.Snssai.Sd != "" {
 					if len(sliceSupportItem.Snssai.Sd) < 6 {
-						logger.ContextLog.Debugln("detect configuration Sd length < 6")
+						logger.ContextLog.Debugln("detected configuration Sd length < 6")
 						sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-len(sliceSupportItem.Snssai.Sd)) + sliceSupportItem.Snssai.Sd
 						logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
 					} else if len(sliceSupportItem.Snssai.Sd) > 6 {
-						logger.ContextLog.Errorln("detect configuration Sd length > 6")
+						logger.ContextLog.Errorln("detected configuration Sd length > 6")
 						return false
 					}
 				}

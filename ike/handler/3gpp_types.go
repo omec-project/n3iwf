@@ -234,7 +234,7 @@ func UnmarshalEAP5GData(codedData []byte) (eap5GMessageID uint8, anParameters *A
 							logger.IKELog.Warnln("AN-Parameter establishment cause field empty")
 						}
 					default:
-						logger.IKELog.Warnln("unsopprted AN-Parameter. Ignore")
+						logger.IKELog.Warnln("unsupported AN-Parameter. Ignore")
 					}
 
 					// shift anParameterField

@@ -162,7 +162,7 @@ func (n3iwf *N3IWF) Start() {
 	logger.InitLog.Infoln("server started")
 
 	if !util.InitN3IWFContext() {
-		logger.InitLog.Errorln("initiating context failed")
+		logger.InitLog.Errorln("initializing context failed")
 		return
 	}
 

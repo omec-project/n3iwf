@@ -60,7 +60,7 @@ func (container *IKEPayloadContainer) BuildEncrypted(nextPayload IKEPayloadType,
 	return encrypted
 }
 
-func (container *IKEPayloadContainer) BUildKeyExchange(diffiehellmanGroup uint16, keyExchangeData []byte) {
+func (container *IKEPayloadContainer) BuildKeyExchange(diffiehellmanGroup uint16, keyExchangeData []byte) {
 	keyExchange := new(KeyExchange)
 	keyExchange.DiffieHellmanGroup = diffiehellmanGroup
 	keyExchange.KeyExchangeData = append(keyExchange.KeyExchangeData, keyExchangeData...)
@@ -215,7 +215,7 @@ func (container *IKEPayloadContainer) BuildEAPSuccess(identifier uint8) {
 	*container = append(*container, eap)
 }
 
-func (container *IKEPayloadContainer) BuildEAPfailure(identifier uint8) {
+func (container *IKEPayloadContainer) BuildEAPFailure(identifier uint8) {
 	eap := new(EAP)
 	eap.Code = EAPCodeFailure
 	eap.Identifier = identifier

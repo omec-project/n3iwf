@@ -29,7 +29,7 @@ func init() {
 }
 
 // TestEncodeDecode tests the Encode() and Decode() function using the data
-// build manually.
+// built manually.
 // First, build each payload with correct value, then the IKE message for
 // IKE_SA_INIT type.
 // Second, encode/decode the IKE message using Encode/Decode function, and then
@@ -39,7 +39,7 @@ func init() {
 func TestEncodeDecode(t *testing.T) {
 	testPacket := &IKEMessage{}
 
-	// random an SPI
+	// generate a random SPI
 	src := Mrand.NewSource(63579)
 	localRand := Mrand.New(src)
 	ispi := localRand.Uint64()

@@ -258,7 +258,7 @@ func (context *N3IWFContext) AMFSelection(ueSpecifiedGUAMI *ngapType.GUAMI) *N3I
 	var availableAMF *N3IWFAMF
 	context.AmfPool.Range(func(key, value interface{}) bool {
 		amf := value.(*N3IWFAMF)
-		if amf.FindAvalibleAMFByCompareGUAMI(ueSpecifiedGUAMI) {
+		if amf.FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI) {
 			availableAMF = amf
 			return false
 		} else {
@@ -278,7 +278,7 @@ func generateRandomIPinRange(subnet *net.IPNet) net.IP {
 		return nil
 	}
 
-	// TODO: elimenate network name, gateway, and broadcast
+	// TODO: eliminate network name, gateway, and broadcast
 	for i := 0; i < 4; i++ {
 		alter := randomNumber[i] & (subnet.Mask[i] ^ 255)
 		ipAddr[i] = subnet.IP[i] + alter

@@ -60,7 +60,7 @@ const (
 	AttributeFormatUseTV
 )
 
-// used for SecurityAssociation-Proposal-Trandform AttributeType
+// used for SecurityAssociation-Proposal-Transform AttributeType
 const (
 	AttributeTypeKeyLength = 14
 )
