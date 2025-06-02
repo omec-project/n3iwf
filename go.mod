@@ -6,7 +6,7 @@ require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
 	github.com/omec-project/aper v1.3.0
 	github.com/omec-project/ngap v1.4.0
-	github.com/omec-project/util v1.3.0
+	github.com/omec-project/util v1.3.2
 	github.com/urfave/cli v1.22.16
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.7.4
@@ -25,7 +25,7 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
-	github.com/gin-gonic/gin v1.10.0 // indirect
+	github.com/gin-gonic/gin v1.10.1 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
