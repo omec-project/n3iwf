@@ -13,7 +13,7 @@ import (
 
 	ike_message "github.com/omec-project/n3iwf/ike/message"
 	"github.com/omec-project/ngap/ngapType"
-	gtpv1 "github.com/wmnsk/go-gtp/v1"
+	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 )
 
 const (

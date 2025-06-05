@@ -17,7 +17,7 @@ import (
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/ngap/ngapType"
 	"github.com/omec-project/util/idgenerator"
-	gtpv1 "github.com/wmnsk/go-gtp/v1"
+	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 	"golang.org/x/net/ipv4"
 )
 
