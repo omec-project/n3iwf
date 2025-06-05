@@ -12,7 +12,7 @@ import (
 
 	n3iwf_context "github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
-	gtpv1 "github.com/wmnsk/go-gtp/v1"
+	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 )
 
 // SetupGTPTunnelWithUPF sets up GTP connection with UPF

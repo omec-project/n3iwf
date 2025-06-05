@@ -11,7 +11,7 @@ import (
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
-	gtpv1 "github.com/wmnsk/go-gtp/v1"
+	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 	"golang.org/x/net/ipv4"
 )
 
