@@ -7,7 +7,7 @@ require (
 	github.com/omec-project/aper v1.3.1
 	github.com/omec-project/ngap v1.4.2
 	github.com/omec-project/util v1.3.2
-	github.com/urfave/cli v1.22.16
+	github.com/urfave/cli v1.22.17
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.8.12
 	go.uber.org/zap v1.27.0
