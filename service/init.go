@@ -22,7 +22,7 @@ import (
 	"github.com/omec-project/n3iwf/util"
 	ngapLogger "github.com/omec-project/ngap/logger"
 	utilLogger "github.com/omec-project/util/logger"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -39,7 +39,7 @@ type (
 var config Config
 
 var n3iwfCLi = []cli.Flag{
-	cli.StringFlag{
+	&cli.StringFlag{
 		Name:     "cfg",
 		Usage:    "n3iwf config file",
 		Required: true,
@@ -53,7 +53,7 @@ func (*N3IWF) GetCliCmd() (flags []cli.Flag) {
 	return n3iwfCLi
 }
 
-func (n3iwf *N3IWF) Initialize(c *cli.Context) error {
+func (n3iwf *N3IWF) Initialize(c *cli.Command) error {
 	config = Config{
 		cfg: c.String("cfg"),
 	}
@@ -145,9 +145,9 @@ func (n3iwf *N3IWF) setLogLevel() {
 	}
 }
 
-func (n3iwf *N3IWF) FilterCli(c *cli.Context) (args []string) {
+func (n3iwf *N3IWF) FilterCli(c *cli.Command) (args []string) {
 	for _, flag := range n3iwf.GetCliCmd() {
-		name := flag.GetName()
+		name := flag.Names()[0]
 		value := fmt.Sprint(c.Generic(name))
 		if value == "" {
 			continue
@@ -206,7 +206,7 @@ func (n3iwf *N3IWF) Start() {
 	wg.Wait()
 }
 
-func (n3iwf *N3IWF) Exec(c *cli.Context) error {
+func (n3iwf *N3IWF) Exec(c *cli.Command) error {
 	// N3IWF.Initialize(cfgPath, c)
 
 	logger.InitLog.Debugln("args:", c.String("cfg"))
