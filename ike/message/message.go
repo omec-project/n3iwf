@@ -51,7 +51,7 @@ func (ikeMessage *IKEMessage) Encode() ([]byte, error) {
 	binary.BigEndian.PutUint32(ikeMessageData[24:28], uint32(len(ikeMessageData)))
 
 	logger.IKELog.Debugf("encoded %d bytes", len(ikeMessageData))
-	logger.IKELog.Debugf("IKE message data: %s", hex.Dump(ikeMessageData))
+	logger.IKELog.Debugf("IKE message data:\n%s", hex.Dump(ikeMessageData))
 
 	return ikeMessageData, nil
 }
@@ -60,7 +60,7 @@ func (ikeMessage *IKEMessage) Decode(rawData []byte) error {
 	// IKE message packet format this implementation referenced is
 	// defined in RFC 7296, Section 3.1
 	logger.IKELog.Infoln("decoding IKE message")
-	logger.IKELog.Debugf("received IKE message: %s", hex.Dump(rawData))
+	logger.IKELog.Debugf("received IKE message:\n%s", hex.Dump(rawData))
 
 	// bounds checking
 	if len(rawData) < 28 {

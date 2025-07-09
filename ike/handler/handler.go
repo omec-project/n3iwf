@@ -358,7 +358,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, messa
 	ikeSecurityAssociation.LocalUnsignedAuthentication = append(ikeSecurityAssociation.LocalUnsignedAuthentication,
 		pseudorandomFunction.Sum(nil)...)
 
-	logger.IKELog.Debugf("local unsigned authentication data: %s", hex.Dump(ikeSecurityAssociation.LocalUnsignedAuthentication))
+	logger.IKELog.Debugf("local unsigned authentication data:\n%s", hex.Dump(ikeSecurityAssociation.LocalUnsignedAuthentication))
 
 	// Send response to UE
 	SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
@@ -684,7 +684,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		responseIKEPayload.BuildCertificate(ike_message.X509CertificateSignature, n3iwfSelf.N3iwfCertificate)
 
 		// Authentication Data
-		logger.IKELog.Debugf("local authentication data: %s", hex.Dump(ikeSecurityAssociation.LocalUnsignedAuthentication))
+		logger.IKELog.Debugf("local authentication data:\n%s", hex.Dump(ikeSecurityAssociation.LocalUnsignedAuthentication))
 		sha1HashFunction := sha1.New()
 		if _, err := sha1HashFunction.Write(ikeSecurityAssociation.LocalUnsignedAuthentication); err != nil {
 			logger.IKELog.Errorf("hash function write error: %+v", err)

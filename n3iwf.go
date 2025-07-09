@@ -13,27 +13,23 @@ import (
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/service"
 	"github.com/urfave/cli/v3"
-	"go.uber.org/zap"
 )
 
 var N3IWF = &service.N3IWF{}
 
-var appLog *zap.SugaredLogger
-
 func init() {
-	appLog = logger.AppLog
 }
 
 func main() {
 	app := &cli.Command{}
 	app.Name = "n3iwf"
-	appLog.Infoln(app.Name)
+	logger.AppLog.Infof("Starting Non-3GPP Interworking Function (N3IWF): %s", app.Name)
 	app.Usage = "Non-3GPP Interworking Function"
 	app.UsageText = "n3iwf -cfg <n3iwf_config_file.conf>"
 	app.Action = action
 	app.Flags = N3IWF.GetCliCmd()
 	if err := app.Run(context.Background(), os.Args); err != nil {
-		appLog.Fatalf("N3IWF run error: %v", err)
+		logger.AppLog.Fatalf("N3IWF run error: %v", err)
 	}
 }
 

@@ -274,12 +274,12 @@ func DecryptMessage(key []byte, cipherText []byte, algorithmType uint16) ([]byte
 		cbcBlockMode := cipher.NewCBCDecrypter(block, initializationVector)
 		cbcBlockMode.CryptBlocks(plainText, encryptedMessage)
 
-		logger.IKELog.Debugf("decrypted content: %s", hex.Dump(plainText))
+		logger.IKELog.Debugf("decrypted content:\n%s", hex.Dump(plainText))
 
 		padding := int(plainText[len(plainText)-1]) + 1
 		plainText = plainText[:len(plainText)-padding]
 
-		logger.IKELog.Debugf("decrypted content with out padding: %s", hex.Dump(plainText))
+		logger.IKELog.Debugf("decrypted content with out padding:\n%s", hex.Dump(plainText))
 
 		return plainText, nil
 	default:
@@ -429,13 +429,13 @@ func GenerateKeyForIKESA(ikeSecurityAssociation *context.IKESecurityAssociation)
 	ikeSecurityAssociation.SK_pr = keyStream[:length_SK_pr]
 	// keyStream = keyStream[length_SK_pr:]
 
-	logger.IKELog.Debugf("SK_d: %s", hex.Dump(ikeSecurityAssociation.SK_d))
-	logger.IKELog.Debugf("SK_ai: %s", hex.Dump(ikeSecurityAssociation.SK_ai))
-	logger.IKELog.Debugf("SK_ar: %s", hex.Dump(ikeSecurityAssociation.SK_ar))
-	logger.IKELog.Debugf("SK_ei: %s", hex.Dump(ikeSecurityAssociation.SK_ei))
-	logger.IKELog.Debugf("SK_er: %s", hex.Dump(ikeSecurityAssociation.SK_er))
-	logger.IKELog.Debugf("SK_pi: %s", hex.Dump(ikeSecurityAssociation.SK_pi))
-	logger.IKELog.Debugf("SK_pr: %s", hex.Dump(ikeSecurityAssociation.SK_pr))
+	logger.IKELog.Debugf("SK_d: %s", hex.EncodeToString(ikeSecurityAssociation.SK_d))
+	logger.IKELog.Debugf("SK_ai: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ai))
+	logger.IKELog.Debugf("SK_ar: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ar))
+	logger.IKELog.Debugf("SK_ei: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ei))
+	logger.IKELog.Debugf("SK_er: %s", hex.EncodeToString(ikeSecurityAssociation.SK_er))
+	logger.IKELog.Debugf("SK_pi: %s", hex.EncodeToString(ikeSecurityAssociation.SK_pi))
+	logger.IKELog.Debugf("SK_pr: %s", hex.EncodeToString(ikeSecurityAssociation.SK_pr))
 
 	return nil
 }
