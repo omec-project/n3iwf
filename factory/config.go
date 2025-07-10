@@ -30,7 +30,7 @@ type Configuration struct {
 	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
 	LocalSctpAddress     string                     `yaml:"localSctpAddress"`
 	IkeBindAddress       string                     `yaml:"ikeBindAddress"`
-	IpSecAddress         string                     `yaml:"ipSecAddress"`	        // e.g. 10.0.1.0/24
+	IpSecAddress         string                     `yaml:"ipSecAddress"` // e.g. 10.0.1.0/24
 	GtpBindAddress       string                     `yaml:"gtpBindAddress"`
 	TcpPort              uint16                     `yaml:"nasTcpPort"`
 	Fqdn                 string                     `yaml:"fqdn"`                 // e.g. n3iwf.aether.org
