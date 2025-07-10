@@ -15,8 +15,7 @@ configuration:
         mcc: 208
         mnc: 93
       n3iwfId: 135
-    name:
-      aether_n3iwf
+    name: aether_n3iwf
     supportedTaList:
       - tac: 1
         broadcastPlmnList:
@@ -30,19 +29,32 @@ configuration:
               - snssai:
                   sst: 1
                   sd: 112233
+
   amfSctpAddresses:
     - ipList:
       - "127.0.0.1"
+
   ikeBindAddress: "127.0.0.1"
-  ipSecAddress: "127.0.0.1"
+  ipSecAddress: "192.168.110.1/24"
+  xfrmInterfaceName: xfrmi
+  xfrmInterfaceId: 1
+  nasTcpPort: 20000
+
   gtpBindAddress: "127.0.0.1"
-  nasTcpPort: 32550
+  localSctpAddress: 10.100.200.1
+
   fqdn: n3iwf.aether.org
+
   privateKey: "/opt/n3iwf.key"
   certificateAuthority: "/opt/n3iwf.crt"
   certificate: "/opt/n3iwf.crt"
-  ueIpNetwork: "192.168.110.0/24"
 
 logger:
   N3IWF:
+    debugLevel: info
+  NGAP:
+    debugLevel: info
+  Aper:
+    debugLevel: info
+  Util:
     debugLevel: info
