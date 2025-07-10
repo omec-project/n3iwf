@@ -15,16 +15,15 @@ import (
 
 var N3iwfConfig Config
 
-// TODO: Support configuration update from REST api
 func InitConfigFactory(f string) error {
-	if content, err := os.ReadFile(f); err != nil {
+	content, err := os.ReadFile(f)
+	if err != nil {
 		return err
-	} else {
-		N3iwfConfig = Config{}
+	}
 
-		if yamlErr := yaml.Unmarshal(content, &N3iwfConfig); yamlErr != nil {
-			return yamlErr
-		}
+	N3iwfConfig = Config{}
+	if err = yaml.Unmarshal(content, &N3iwfConfig); err != nil {
+		return err
 	}
 
 	return nil
