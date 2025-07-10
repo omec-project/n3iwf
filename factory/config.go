@@ -30,14 +30,13 @@ type Configuration struct {
 	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
 	LocalSctpAddress     string                     `yaml:"localSctpAddress"`
 	IkeBindAddress       string                     `yaml:"ikeBindAddress"`
-	IpSecAddress         string                     `yaml:"ipSecAddress"`
+	IpSecAddress         string                     `yaml:"ipSecAddress"`	        // e.g. 10.0.1.0/24
 	GtpBindAddress       string                     `yaml:"gtpBindAddress"`
 	TcpPort              uint16                     `yaml:"nasTcpPort"`
 	Fqdn                 string                     `yaml:"fqdn"`                 // e.g. n3iwf.aether.org
 	PrivateKey           string                     `yaml:"privateKey"`           // file path
 	CertificateAuthority string                     `yaml:"certificateAuthority"` // file path
 	Certificate          string                     `yaml:"certificate"`          // file path
-	UeIpNetwork          string                     `yaml:"ueIpNetwork"`          // e.g. 10.0.1.0/24
 	InterfaceMark        uint32                     `yaml:"ipSecInterfaceMark"`   // must be != 0, if not specified, set to `7`
 }
 

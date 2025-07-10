@@ -197,11 +197,11 @@ func InitN3IWFContext() bool {
 	n3iwfContext.N3iwfCertificate = block.Bytes
 
 	// UE IP address range
-	if factory.N3iwfConfig.Configuration.UeIpNetwork == "" {
+	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
 		logger.ContextLog.Errorln("UE IP address range is empty")
 		return false
 	}
-	_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.UeIpNetwork)
+	_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
 	if err != nil {
 		logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
 		return false
