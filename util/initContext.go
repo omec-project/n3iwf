@@ -97,7 +97,13 @@ func InitN3IWFContext() bool {
 		logger.ContextLog.Errorln("IPSec interface address is empty")
 		return false
 	}
-	n3iwfContext.IpSecGatewayAddress = factory.N3iwfConfig.Configuration.IpSecAddress
+
+	n3iwfIpAddr, _, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
+	if err != nil {
+		logger.ContextLog.Errorf("parse IpSecAddress failed: %+v", err)
+		return false
+	}
+	n3iwfContext.IpSecGatewayAddress = n3iwfIpAddr.String()
 
 	// GTP bind address
 	if factory.N3iwfConfig.Configuration.GtpBindAddress == "" {

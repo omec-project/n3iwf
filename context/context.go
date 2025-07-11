@@ -279,7 +279,7 @@ func generateRandomIPinRange(subnet *net.IPNet) net.IP {
 	}
 
 	// TODO: eliminate network name, gateway, and broadcast
-	for i := 0; i < 4; i++ {
+	for i := range randomNumber[:4] {
 		alter := randomNumber[i] & (subnet.Mask[i] ^ 255)
 		ipAddr[i] = subnet.IP[i] + alter
 	}
