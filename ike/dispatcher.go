@@ -17,8 +17,8 @@ func Dispatch(udpConn *net.UDPConn, localAddr, remoteAddr *net.UDPAddr, msg []by
 	// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
 	// should prepend a 4 bytes zero
 	if localAddr.Port == 4500 {
-		for i := 0; i < 4; i++ {
-			if msg[i] != 0 {
+		for _, i := range msg[:4] {
+			if i != 0 {
 				logger.IKELog.Warnln(
 					"received an IKE packet that does not prepend 4 bytes zero from UDP port 4500," +
 						" this packet may be the UDP encapsulated ESP. The packet will not be handled")

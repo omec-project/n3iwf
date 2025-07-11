@@ -445,7 +445,6 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 }
 
 // Definition of Key Exchange
-
 var _ IKEPayload = &KeyExchange{}
 
 type KeyExchange struct {
@@ -485,7 +484,6 @@ func (keyExchange *KeyExchange) unmarshal(rawData []byte) error {
 }
 
 // Definition of Identification - Initiator
-
 var _ IKEPayload = &IdentificationInitiator{}
 
 type IdentificationInitiator struct {
@@ -525,7 +523,6 @@ func (identification *IdentificationInitiator) unmarshal(rawData []byte) error {
 }
 
 // Definition of Identification - Responder
-
 var _ IKEPayload = &IdentificationResponder{}
 
 type IdentificationResponder struct {
@@ -565,7 +562,6 @@ func (identification *IdentificationResponder) unmarshal(rawData []byte) error {
 }
 
 // Definition of Certificate
-
 var _ IKEPayload = &Certificate{}
 
 type Certificate struct {
@@ -605,7 +601,6 @@ func (certificate *Certificate) unmarshal(rawData []byte) error {
 }
 
 // Definition of Certificate Request
-
 var _ IKEPayload = &CertificateRequest{}
 
 type CertificateRequest struct {
@@ -645,7 +640,6 @@ func (certificateRequest *CertificateRequest) unmarshal(rawData []byte) error {
 }
 
 // Definition of Authentication
-
 var _ IKEPayload = &Authentication{}
 
 type Authentication struct {
@@ -685,7 +679,6 @@ func (authentication *Authentication) unmarshal(rawData []byte) error {
 }
 
 // Definition of Nonce
-
 var _ IKEPayload = &Nonce{}
 
 type Nonce struct {
@@ -716,7 +709,6 @@ func (nonce *Nonce) unmarshal(rawData []byte) error {
 }
 
 // Definition of Notification
-
 var _ IKEPayload = &Notification{}
 
 type Notification struct {
@@ -769,7 +761,6 @@ func (notification *Notification) unmarshal(rawData []byte) error {
 }
 
 // Definition of Delete
-
 var _ IKEPayload = &Delete{}
 
 type Delete struct {
@@ -826,7 +817,6 @@ func (del *Delete) unmarshal(rawData []byte) error {
 }
 
 // Definition of Vendor ID
-
 var _ IKEPayload = &VendorID{}
 
 type VendorID struct {
@@ -853,7 +843,6 @@ func (vendorID *VendorID) unmarshal(rawData []byte) error {
 }
 
 // Definition of Traffic Selector - Initiator
-
 var _ IKEPayload = &TrafficSelectorInitiator{}
 
 type TrafficSelectorInitiator struct {
@@ -876,65 +865,68 @@ func (trafficSelector *TrafficSelectorInitiator) Type() IKEPayloadType { return 
 func (trafficSelector *TrafficSelectorInitiator) marshal() ([]byte, error) {
 	logger.IKELog.Infoln("start marshalling")
 
-	if len(trafficSelector.TrafficSelectors) > 0 {
-		trafficSelectorData := make([]byte, 4)
-		trafficSelectorData[0] = uint8(len(trafficSelector.TrafficSelectors))
-
-		for _, individualTrafficSelector := range trafficSelector.TrafficSelectors {
-			if individualTrafficSelector.TSType == TS_IPV4_ADDR_RANGE {
-				// Address length checking
-				if len(individualTrafficSelector.StartAddress) != 4 {
-					logger.IKELog.Errorf("address length %d", len(individualTrafficSelector.StartAddress))
-					return nil, errors.New("TrafficSelector: Start IPv4 address length is not correct")
-				}
-				if len(individualTrafficSelector.EndAddress) != 4 {
-					return nil, errors.New("TrafficSelector: End IPv4 address length is not correct")
-				}
-
-				individualTrafficSelectorData := make([]byte, 8)
-
-				individualTrafficSelectorData[0] = individualTrafficSelector.TSType
-				individualTrafficSelectorData[1] = individualTrafficSelector.IPProtocolID
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[4:6], individualTrafficSelector.StartPort)
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[6:8], individualTrafficSelector.EndPort)
-
-				individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
-				individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
-
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
-
-				trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
-			} else if individualTrafficSelector.TSType == TS_IPV6_ADDR_RANGE {
-				// Address length checking
-				if len(individualTrafficSelector.StartAddress) != 16 {
-					return nil, errors.New("TrafficSelector: Start IPv6 address length is not correct")
-				}
-				if len(individualTrafficSelector.EndAddress) != 16 {
-					return nil, errors.New("TrafficSelector: End IPv6 address length is not correct")
-				}
-
-				individualTrafficSelectorData := make([]byte, 8)
-
-				individualTrafficSelectorData[0] = individualTrafficSelector.TSType
-				individualTrafficSelectorData[1] = individualTrafficSelector.IPProtocolID
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[4:6], individualTrafficSelector.StartPort)
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[6:8], individualTrafficSelector.EndPort)
-
-				individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
-				individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
-
-				binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
-
-				trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
-			} else {
-				return nil, errors.New("TrafficSelector: Unsupported traffic selector type")
-			}
-		}
-
-		return trafficSelectorData, nil
-	} else {
+	if len(trafficSelector.TrafficSelectors) == 0 {
 		return nil, errors.New("TrafficSelector: Contains no traffic selector for marshalling message")
 	}
+
+	trafficSelectorData := make([]byte, 4)
+	trafficSelectorData[0] = uint8(len(trafficSelector.TrafficSelectors))
+
+	for _, individualTrafficSelector := range trafficSelector.TrafficSelectors {
+		switch individualTrafficSelector.TSType {
+		case TS_IPV4_ADDR_RANGE:
+			// Address length checking
+			logger.IKELog.Debugf("address length %d", len(individualTrafficSelector.StartAddress))
+			if len(individualTrafficSelector.StartAddress) != 4 {
+				return nil, errors.New("TrafficSelector: Start IPv4 address length is not correct")
+			}
+			if len(individualTrafficSelector.EndAddress) != 4 {
+				return nil, errors.New("TrafficSelector: End IPv4 address length is not correct")
+			}
+
+			individualTrafficSelectorData := make([]byte, 8)
+
+			individualTrafficSelectorData[0] = individualTrafficSelector.TSType
+			individualTrafficSelectorData[1] = individualTrafficSelector.IPProtocolID
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[4:6], individualTrafficSelector.StartPort)
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[6:8], individualTrafficSelector.EndPort)
+
+			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
+			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
+
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+
+			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
+		case TS_IPV6_ADDR_RANGE:
+			// Address length checking
+			logger.IKELog.Debugf("address length %d", len(individualTrafficSelector.StartAddress))
+			if len(individualTrafficSelector.StartAddress) != 16 {
+				return nil, errors.New("TrafficSelector: Start IPv6 address length is not correct")
+			}
+			if len(individualTrafficSelector.EndAddress) != 16 {
+				return nil, errors.New("TrafficSelector: End IPv6 address length is not correct")
+			}
+
+			individualTrafficSelectorData := make([]byte, 8)
+
+			individualTrafficSelectorData[0] = individualTrafficSelector.TSType
+			individualTrafficSelectorData[1] = individualTrafficSelector.IPProtocolID
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[4:6], individualTrafficSelector.StartPort)
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[6:8], individualTrafficSelector.EndPort)
+
+			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
+			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
+
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+
+			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
+		default:
+			logger.IKELog.Errorf("unsupported traffic selector type %d", individualTrafficSelector.TSType)
+			return nil, errors.New("TrafficSelector: Unsupported traffic selector type")
+		}
+	}
+
+	return trafficSelectorData, nil
 }
 
 func (trafficSelector *TrafficSelectorInitiator) unmarshal(rawData []byte) error {
