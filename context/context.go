@@ -256,7 +256,7 @@ func (context *N3IWFContext) AllocatedUETEIDLoad(teid uint32) (*N3IWFUe, bool) {
 
 func (context *N3IWFContext) AMFSelection(ueSpecifiedGUAMI *ngapType.GUAMI) *N3IWFAMF {
 	var availableAMF *N3IWFAMF
-	context.AmfPool.Range(func(key, value interface{}) bool {
+	context.AmfPool.Range(func(key, value any) bool {
 		amf := value.(*N3IWFAMF)
 		if amf.FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI) {
 			availableAMF = amf
