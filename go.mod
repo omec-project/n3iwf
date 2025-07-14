@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	git.cs.nctu.edu.tw/calee/sctp v1.1.0
 	github.com/omec-project/aper v1.3.1
-	github.com/omec-project/ngap v1.4.2
+	github.com/omec-project/ngap v1.5.0
 	github.com/omec-project/util v1.4.0
 	github.com/urfave/cli/v3 v3.3.8
 	github.com/vishvananda/netlink v1.3.1
