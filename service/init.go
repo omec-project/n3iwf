@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -226,13 +225,7 @@ func (n3iwf *N3IWF) Start() {
 }
 
 func (n3iwf *N3IWF) ListenShutdownEvent(n3iwfContext *n3iwf_context.N3IWFContext) {
-	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.InitLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-		n3iwfContext.Wg.Done()
-	}()
+	defer util.RecoverWithLog(logger.InitLog)
 
 	<-n3iwfContext.Ctx.Done()
 	StopServiceConn(n3iwfContext)

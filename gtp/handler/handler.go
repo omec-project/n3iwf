@@ -7,12 +7,12 @@ package handler
 
 import (
 	"net"
-	"runtime/debug"
 
 	n3iwfContext "github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/gre"
 	gtpQoSMsg "github.com/omec-project/n3iwf/gtp/message"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 	gtp "github.com/wmnsk/go-gtp/gtpv1"
 	gtpMsg "github.com/wmnsk/go-gtp/gtpv1/message"
 	"golang.org/x/net/ipv4"
@@ -31,12 +31,7 @@ func HandleQoSTPDU(c gtp.Conn, senderAddr net.Addr, msg gtpMsg.Message) error {
 
 // Forward user plane packets from N3 to UE with GRE header and new IP header encapsulated
 func forward(packet gtpQoSMsg.QoSTPDUPacket) {
-	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.GTPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-	}()
+	defer util.RecoverWithLog(logger.GTPLog)
 
 	self := n3iwfContext.N3IWFSelf()
 	NWuConn := self.NWuIPv4PacketConn

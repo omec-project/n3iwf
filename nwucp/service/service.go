@@ -11,13 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"runtime/debug"
 	"strings"
 	"sync"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap/message"
+	"github.com/omec-project/n3iwf/util"
 )
 
 var tcpListener net.Listener
@@ -51,17 +51,14 @@ func Run(wg *sync.WaitGroup) error {
 // received from the connection.
 func listenAndServe(listener net.Listener, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-
 		err := tcpListener.Close()
 		if err != nil {
 			logger.NWuCPLog.Errorf("error closing tcpListener: %+v", err)
 		}
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NWuCPLog)
 
 	for {
 		connection, err := listener.Accept()
@@ -141,17 +138,14 @@ func Stop(n3iwfContext *context.N3IWFContext) {
 // to AMF
 func serveConn(ranUe *context.N3IWFRanUe, connection net.Conn, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-
 		err := connection.Close()
 		if err != nil {
 			logger.NWuCPLog.Errorf("error closing connection: %+v", err)
 		}
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NWuCPLog)
 
 	data := make([]byte, 65535)
 	for {
@@ -175,12 +169,10 @@ func serveConn(ranUe *context.N3IWFRanUe, connection net.Conn, wg *sync.WaitGrou
 // associated AMF
 func forward(ranUe *context.N3IWFRanUe, packet []byte, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NWuCPLog)
 
 	logger.NWuCPLog.Debugln("forward NWu -> N2")
 	message.SendUplinkNASTransport(ranUe, packet)

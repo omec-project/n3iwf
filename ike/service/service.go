@@ -8,13 +8,13 @@ package service
 import (
 	"errors"
 	"net"
-	"runtime/debug"
 	"sync"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike"
 	"github.com/omec-project/n3iwf/ike/handler"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 )
 
 var (
@@ -78,15 +78,12 @@ func NewIkeServer() *context.IkeServer {
 
 func server(ikeServer *context.IkeServer, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.IKELog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		logger.IKELog.Infof("IKE server stopped")
 		close(ikeServer.RcvIkePktCh)
 		close(ikeServer.StopServer)
 		wg.Done()
 	}()
+	defer util.RecoverWithLog(logger.IKELog)
 
 	for {
 		select {
@@ -103,13 +100,10 @@ func server(ikeServer *context.IkeServer, wg *sync.WaitGroup) {
 
 func receiver(localAddr *net.UDPAddr, ikeServer *context.IkeServer, errChan chan<- error, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.IKELog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		logger.IKELog.Infof("IKE receiver stopped")
 		wg.Done()
 	}()
+	defer util.RecoverWithLog(logger.IKELog)
 
 	listener, err := net.ListenUDP("udp", localAddr)
 	if err != nil {

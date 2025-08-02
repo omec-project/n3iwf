@@ -8,7 +8,6 @@ package service
 import (
 	"errors"
 	"io"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/omec-project/n3iwf/ngap"
 	"github.com/omec-project/n3iwf/ngap/handler"
 	"github.com/omec-project/n3iwf/ngap/message"
+	"github.com/omec-project/n3iwf/util"
 	lib_ngap "github.com/omec-project/ngap"
 )
 
@@ -61,15 +61,12 @@ func NewNgapServer() *context.NgapServer {
 
 func server(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NgapLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		logger.NgapLog.Infoln("NGAP server stopped")
 		close(ngapServer.RcvEventCh)
 		close(ngapServer.RcvNgapPktCh)
 		wg.Done()
 	}()
+	defer util.RecoverWithLog(logger.NgapLog)
 
 	for {
 		select {
@@ -88,13 +85,11 @@ func receiver(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error, ngapSe
 	wg *sync.WaitGroup,
 ) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NgapLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		logger.NgapLog.Infoln("NGAP receiver stopped")
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NgapLog)
 
 	var conn *sctp.SCTPConn
 	var err error

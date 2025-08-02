@@ -8,13 +8,13 @@ package handler
 import (
 	"encoding/binary"
 	"net"
-	"runtime/debug"
 	"time"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/factory"
 	ike_message "github.com/omec-project/n3iwf/ike/message"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 )
 
 func SendIKEMessageToUE(udpConn *net.UDPConn, srcAddr, dstAddr *net.UDPAddr, message *ike_message.IKEMessage) {
@@ -99,12 +99,7 @@ func SendChildSADeleteRequest(ikeUe *context.N3IWFIkeUe, relaseList []int64) {
 }
 
 func StartDPD(ikeUe *context.N3IWFIkeUe) {
-	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.IKELog.Errorf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-	}()
+	defer util.RecoverWithLog(logger.IKELog)
 
 	ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh = make(chan struct{})
 

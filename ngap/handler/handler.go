@@ -20,6 +20,11 @@ import (
 	"github.com/omec-project/ngap/ngapType"
 )
 
+var (
+	defaultSecurityIntegrity bool = true
+	defaultSecurityCipher    bool = true
+)
+
 func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle NG Setup Response")
 
@@ -775,11 +780,11 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 	if securityIndication != nil {
 		switch securityIndication.IntegrityProtectionIndication.Value {
 		case ngapType.IntegrityProtectionIndicationPresentNotNeeded:
-			pduSession.SecurityIntegrity = false
+			pduSession.SecurityIntegrity = !defaultSecurityIntegrity
 		case ngapType.IntegrityProtectionIndicationPresentPreferred:
-			pduSession.SecurityIntegrity = true
+			pduSession.SecurityIntegrity = defaultSecurityIntegrity
 		case ngapType.IntegrityProtectionIndicationPresentRequired:
-			pduSession.SecurityIntegrity = true
+			pduSession.SecurityIntegrity = defaultSecurityIntegrity
 		default:
 			logger.NgapLog.Errorln("unknown security integrity indication")
 			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
@@ -792,11 +797,11 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 
 		switch securityIndication.ConfidentialityProtectionIndication.Value {
 		case ngapType.ConfidentialityProtectionIndicationPresentNotNeeded:
-			pduSession.SecurityCipher = false
+			pduSession.SecurityCipher = !defaultSecurityCipher
 		case ngapType.ConfidentialityProtectionIndicationPresentPreferred:
-			pduSession.SecurityCipher = true
+			pduSession.SecurityCipher = defaultSecurityCipher
 		case ngapType.ConfidentialityProtectionIndicationPresentRequired:
-			pduSession.SecurityCipher = true
+			pduSession.SecurityCipher = defaultSecurityCipher
 		default:
 			logger.NgapLog.Errorln("unknown security confidentiality indication")
 			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
@@ -807,8 +812,8 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 			return false, responseTransfer
 		}
 	} else {
-		pduSession.SecurityIntegrity = true
-		pduSession.SecurityCipher = true
+		pduSession.SecurityIntegrity = defaultSecurityIntegrity
+		pduSession.SecurityCipher = defaultSecurityCipher
 	}
 
 	// TODO: apply qos rule

@@ -7,20 +7,15 @@ package ike
 
 import (
 	"net"
-	"runtime/debug"
 
 	"github.com/omec-project/n3iwf/ike/handler"
 	ike_message "github.com/omec-project/n3iwf/ike/message"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 )
 
 func Dispatch(udpConn *net.UDPConn, localAddr, remoteAddr *net.UDPAddr, msg []byte) {
-	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.IKELog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-	}()
+	defer util.RecoverWithLog(logger.IKELog)
 
 	// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
 	// should prepend a 4 bytes zero

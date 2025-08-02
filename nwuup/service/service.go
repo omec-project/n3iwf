@@ -8,13 +8,13 @@ package service
 import (
 	"errors"
 	"net"
-	"runtime/debug"
 	"sync"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/gre"
 	gtpQoSMsg "github.com/omec-project/n3iwf/gtp/message"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 	gtpMsg "github.com/wmnsk/go-gtp/gtpv1/message"
 	"golang.org/x/net/ipv4"
@@ -51,17 +51,14 @@ func Run(wg *sync.WaitGroup) error {
 // listenAndServe reads from socket and calls forward() to forward packets
 func listenAndServe(ipv4PacketConn *ipv4.PacketConn, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NWuUPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
-
 		err := ipv4PacketConn.Close()
 		if err != nil {
 			logger.NWuUPLog.Errorf("error closing raw socket: %+v", err)
 		}
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NWuUPLog)
 
 	buffer := make([]byte, 65535)
 
@@ -87,12 +84,10 @@ func listenAndServe(ipv4PacketConn *ipv4.PacketConn, wg *sync.WaitGroup) {
 // encapsulated
 func forward(ueInnerIP string, ifIndex int, rawData []byte, wg *sync.WaitGroup) {
 	defer func() {
-		if p := recover(); p != nil {
-			// Print stack for panic to log. Fatalf() will let program exit.
-			logger.NWuUPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
-		}
 		wg.Done()
 	}()
+
+	defer util.RecoverWithLog(logger.NWuUPLog)
 
 	self := context.N3IWFSelf()
 	ikeUe, ok := self.AllocatedUEIPAddressLoad(ueInnerIP)
