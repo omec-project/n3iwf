@@ -377,7 +377,7 @@ func (ikeUe *N3IWFIkeUe) CompleteChildSA(msgID uint32, outboundSPI uint32,
 	childSA, ok := ikeUe.TemporaryExchangeMsgIDChildSAMapping[msgID]
 
 	if !ok {
-		return nil, fmt.Errorf("there is not a half child SA created by the exchange with message ID %d.", msgID)
+		return nil, fmt.Errorf("there is not a half child SA created by the exchange with message ID %d", msgID)
 	}
 
 	// Remove mapping of exchange msg ID and child SA
