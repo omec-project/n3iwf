@@ -278,9 +278,11 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 					logger.ContextLog.Errorf("detect configuration sst length > %d", requiredSstLength)
 					return false
 				}
-				logger.ContextLog.Debugf("detect configuration sst length < %d", requiredSstLength)
-				sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
-				logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
+				if sstLength < requiredSstLength {
+					logger.ContextLog.Debugf("detect configuration sst length < %d", requiredSstLength)
+					sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
+					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
+				}
 
 				// Sd
 				if sliceSupportItem.Snssai.Sd == "" {
@@ -292,9 +294,11 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 					logger.ContextLog.Errorf("detected configuration sd length > %d", requiredSdLength)
 					return false
 				}
-				logger.ContextLog.Debugf("detected configuration sd length < %d", requiredSdLength)
-				sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-sdLength) + sliceSupportItem.Snssai.Sd
-				logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
+				if sdLength < requiredSdLength {
+					logger.ContextLog.Debugf("detected configuration sd length < %d", requiredSdLength)
+					sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-sdLength) + sliceSupportItem.Snssai.Sd
+					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
+				}
 			}
 		}
 	}
@@ -305,7 +309,7 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 func getInterfaceName(IPAddress string) (interfaceName string, err error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return "nil", err
+		return "", err
 	}
 
 	res, err := net.ResolveIPAddr("ip4", IPAddress)
@@ -317,7 +321,7 @@ func getInterfaceName(IPAddress string) (interfaceName string, err error) {
 	for _, inter := range interfaces {
 		addrs, err := inter.Addrs()
 		if err != nil {
-			return "nil", err
+			return "", err
 		}
 		for _, addr := range addrs {
 			if IPAddress == addr.String()[0:strings.Index(addr.String(), "/")] {

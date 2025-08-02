@@ -696,7 +696,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 
 	spi, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
 	if !ok {
-		logger.NgapLog.Errorf("cannot get spi from ngapid: %d", ranUe.RanUeNgapId)
+		logger.NgapLog.Errorf("SPI lookup failed for NGAP ID %d: SPI is required to send EAP Success message to UE. Critical operation cannot proceed", ranUe.RanUeNgapId)
 		return
 	}
 
