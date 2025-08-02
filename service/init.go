@@ -233,7 +233,7 @@ func (n3iwf *N3IWF) ListenShutdownEvent(n3iwfContext *n3iwf_context.N3IWFContext
 
 func (n3iwf *N3IWF) WaitRoutineStopped(n3iwfContext *n3iwf_context.N3IWFContext) {
 	n3iwfContext.Wg.Wait()
-	// Waiting for negotiatioon with netlink for deleting interfaces
+	// Waiting for negotiation with netlink for deleting interfaces
 	n3iwf.Terminate(n3iwfContext)
 	time.Sleep(2 * time.Second)
 	os.Exit(0)
