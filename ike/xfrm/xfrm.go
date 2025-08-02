@@ -3,10 +3,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package handler
+package xfrm
 
 import (
 	"errors"
+	"fmt"
+	"net"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike/message"
@@ -52,15 +54,10 @@ func (xfrmIntegrityAlgorithmType XFRMIntegrityAlgorithmType) String() string {
 	}
 }
 
-func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.ChildSecurityAssociation) error {
-	N3IWFSelf := context.N3IWFSelf()
-
+func ApplyXFRMRule(n3iwf_is_initiator bool, xfrmiId uint32,
+	childSecurityAssociation *context.ChildSecurityAssociation,
+) error {
 	// Build XFRM information data structure for incoming traffic.
-
-	// Mark
-	mark := &netlink.XfrmMark{
-		Value: N3IWFSelf.Mark,
-	}
 
 	// Direction: {private_network} -> this_server
 	// State
@@ -95,8 +92,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 	xfrmState.Dst = childSecurityAssociation.LocalPublicIPAddr
 	xfrmState.Proto = netlink.XFRM_PROTO_ESP
 	xfrmState.Mode = netlink.XFRM_MODE_TUNNEL
-	xfrmState.Spi = int(childSecurityAssociation.SPI)
-	xfrmState.Mark = mark
+	xfrmState.Spi = int(childSecurityAssociation.InboundSPI)
+	xfrmState.Ifid = int(xfrmiId)
 	xfrmState.Auth = xfrmIntegrityAlgorithm
 	xfrmState.Crypt = xfrmEncryptionAlgorithm
 	xfrmState.ESN = childSecurityAssociation.ESN
@@ -116,6 +113,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 		return errors.New("set XFRM state rule failed")
 	}
 
+	childSecurityAssociation.XfrmStateList = append(childSecurityAssociation.XfrmStateList, *xfrmState)
+
 	// Policy
 	xfrmPolicyTemplate := netlink.XfrmPolicyTmpl{
 		Src:   xfrmState.Src,
@@ -131,7 +130,7 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 	xfrmPolicy.Dst = &childSecurityAssociation.TrafficSelectorLocal
 	xfrmPolicy.Proto = netlink.Proto(childSecurityAssociation.SelectedIPProtocol)
 	xfrmPolicy.Dir = netlink.XFRM_DIR_IN
-	xfrmPolicy.Mark = mark
+	xfrmPolicy.Ifid = int(xfrmiId)
 	xfrmPolicy.Tmpls = []netlink.XfrmPolicyTmpl{
 		xfrmPolicyTemplate,
 	}
@@ -141,6 +140,8 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 		logger.IKELog.Errorf("set XFRM rules failed: %+v", err)
 		return errors.New("set XFRM policy rule failed")
 	}
+
+	childSecurityAssociation.XfrmPolicyList = append(childSecurityAssociation.XfrmPolicyList, *xfrmPolicy)
 
 	// Direction: this_server -> {private_network}
 	// State
@@ -156,6 +157,7 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 		}
 	}
 
+	xfrmState.Spi = int(childSecurityAssociation.OutboundSPI)
 	xfrmState.Src, xfrmState.Dst = xfrmState.Dst, xfrmState.Src
 	if xfrmState.Encap != nil {
 		xfrmState.Encap.SrcPort, xfrmState.Encap.DstPort = xfrmState.Encap.DstPort, xfrmState.Encap.SrcPort
@@ -167,7 +169,10 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 		return errors.New("set XFRM state rule failed")
 	}
 
+	childSecurityAssociation.XfrmStateList = append(childSecurityAssociation.XfrmStateList, *xfrmState)
+
 	// Policy
+	xfrmPolicyTemplate.Spi = int(childSecurityAssociation.OutboundSPI)
 	xfrmPolicyTemplate.Src, xfrmPolicyTemplate.Dst = xfrmPolicyTemplate.Dst, xfrmPolicyTemplate.Src
 
 	xfrmPolicy.Src, xfrmPolicy.Dst = xfrmPolicy.Dst, xfrmPolicy.Src
@@ -182,5 +187,88 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, childSecurityAssociation *context.Ch
 		return errors.New("set XFRM policy rule failed")
 	}
 
+	childSecurityAssociation.XfrmPolicyList = append(childSecurityAssociation.XfrmPolicyList, *xfrmPolicy)
+
+	var InboundEncryptionKey, InboundIntegrityKey, OutboundEncryptionKey, OutboundIntegrityKey []byte
+
+	if n3iwf_is_initiator {
+		InboundEncryptionKey = childSecurityAssociation.ResponderToInitiatorEncryptionKey
+		InboundIntegrityKey = childSecurityAssociation.ResponderToInitiatorIntegrityKey
+		OutboundEncryptionKey = childSecurityAssociation.InitiatorToResponderEncryptionKey
+		OutboundIntegrityKey = childSecurityAssociation.InitiatorToResponderIntegrityKey
+	} else {
+		InboundEncryptionKey = childSecurityAssociation.InitiatorToResponderEncryptionKey
+		InboundIntegrityKey = childSecurityAssociation.InitiatorToResponderIntegrityKey
+		OutboundEncryptionKey = childSecurityAssociation.ResponderToInitiatorEncryptionKey
+		OutboundIntegrityKey = childSecurityAssociation.ResponderToInitiatorIntegrityKey
+	}
+	// ====== Inbound ======
+	logger.IKELog.Debug("====== IPSec/Child SA Info ======")
+	logger.IKELog.Debugf("XFRM interface if_id: %d", xfrmiId)
+	logger.IKELog.Debugf("IPSec Inbound SPI: 0x%016x", childSecurityAssociation.InboundSPI)
+	logger.IKELog.Debugf("[UE:%+v] -> [N3IWF:%+v]",
+		childSecurityAssociation.PeerPublicIPAddr, childSecurityAssociation.LocalPublicIPAddr)
+	logger.IKELog.Debugf("IPSec Encryption Algorithm: %d", childSecurityAssociation.EncryptionAlgorithm)
+	logger.IKELog.Debugf("IPSec Encryption Key: 0x%x", InboundEncryptionKey)
+	logger.IKELog.Debugf("IPSec Integrity Algorithm: %d", childSecurityAssociation.IntegrityAlgorithm)
+	logger.IKELog.Debugf("IPSec Integrity Key: 0x%x", InboundIntegrityKey)
+	// ====== Outbound ======
+	logger.IKELog.Debug("====== IPSec/Child SA Info ======")
+	logger.IKELog.Debugf("XFRM interface if_id: %d", xfrmiId)
+	logger.IKELog.Debugf("IPSec Outbound SPI: 0x%016x", childSecurityAssociation.OutboundSPI)
+	logger.IKELog.Debugf("[N3IWF:%+v] -> [UE:%+v]",
+		childSecurityAssociation.LocalPublicIPAddr, childSecurityAssociation.PeerPublicIPAddr)
+	logger.IKELog.Debugf("IPSec Encryption Algorithm: %d", childSecurityAssociation.EncryptionAlgorithm)
+	logger.IKELog.Debugf("IPSec Encryption Key: 0x%x", OutboundEncryptionKey)
+	logger.IKELog.Debugf("IPSec Integrity Algorithm: %d", childSecurityAssociation.IntegrityAlgorithm)
+	logger.IKELog.Debugf("IPSec Integrity Key: 0x%x", OutboundIntegrityKey)
+
 	return nil
+}
+
+func SetupIPsecXfrmi(xfrmIfaceName, parentIfaceName string, xfrmIfaceId uint32, xfrmIfaceAddr net.IPNet,
+) (netlink.Link, error) {
+	var (
+		xfrmi, parent netlink.Link
+		err           error
+	)
+
+	if parent, err = netlink.LinkByName(parentIfaceName); err != nil {
+		return nil, fmt.Errorf("cannot find parent interface %s by name: %+v", parentIfaceName, err)
+	}
+
+	// ip link add <xfrmIfaceName> type xfrm dev <parent.Attrs().Name> if_id <xfrmIfaceId>
+	link := &netlink.Xfrmi{
+		LinkAttrs: netlink.LinkAttrs{
+			Name:        xfrmIfaceName,
+			ParentIndex: parent.Attrs().Index,
+		},
+		Ifid: xfrmIfaceId,
+	}
+
+	if err = netlink.LinkAdd(link); err != nil {
+		return nil, err
+	}
+
+	if xfrmi, err = netlink.LinkByName(xfrmIfaceName); err != nil {
+		return nil, err
+	}
+
+	logger.IKELog.Debugf("XFRM interface %s index is %d", xfrmIfaceName, xfrmi.Attrs().Index)
+
+	// ip addr add xfrmIfaceAddr dev <xfrmIfaceName>
+	linkIPSecAddr := &netlink.Addr{
+		IPNet: &xfrmIfaceAddr,
+	}
+
+	if err := netlink.AddrAdd(xfrmi, linkIPSecAddr); err != nil {
+		return nil, err
+	}
+
+	// ip link set <xfrmIfaceName> up
+	if err := netlink.LinkSetUp(xfrmi); err != nil {
+		return nil, err
+	}
+
+	return xfrmi, nil
 }

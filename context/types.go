@@ -18,7 +18,7 @@ type GlobalN3iwfId struct {
 
 type SupportedTAItem struct {
 	Tac               string              `yaml:"tac"`
-	BroadcastPLMNList []BroadcastPlmnItem `yaml:"broadcastPlmnList"`
+	BroadcastPlmnList []BroadcastPlmnItem `yaml:"broadcastPlmnList"`
 }
 
 type BroadcastPlmnItem struct {

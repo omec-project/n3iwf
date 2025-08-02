@@ -45,10 +45,9 @@ func GenerateRandomNumber() *big.Int {
 		if err != nil {
 			logger.IKELog.Errorf("error occurs when generate random number: %+v", err)
 			return nil
-		} else {
-			if number.Cmp(&randomNumberMinimum) == 1 {
-				break
-			}
+		}
+		if number.Cmp(&randomNumberMinimum) == 1 {
+			break
 		}
 	}
 	return number
@@ -429,13 +428,17 @@ func GenerateKeyForIKESA(ikeSecurityAssociation *context.IKESecurityAssociation)
 	ikeSecurityAssociation.SK_pr = keyStream[:length_SK_pr]
 	// keyStream = keyStream[length_SK_pr:]
 
-	logger.IKELog.Debugf("SK_d: %s", hex.EncodeToString(ikeSecurityAssociation.SK_d))
-	logger.IKELog.Debugf("SK_ai: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ai))
-	logger.IKELog.Debugf("SK_ar: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ar))
-	logger.IKELog.Debugf("SK_ei: %s", hex.EncodeToString(ikeSecurityAssociation.SK_ei))
-	logger.IKELog.Debugf("SK_er: %s", hex.EncodeToString(ikeSecurityAssociation.SK_er))
-	logger.IKELog.Debugf("SK_pi: %s", hex.EncodeToString(ikeSecurityAssociation.SK_pi))
-	logger.IKELog.Debugf("SK_pr: %s", hex.EncodeToString(ikeSecurityAssociation.SK_pr))
+	logger.IKELog.Debugln("====== IKE Security Association Info =====")
+	logger.IKELog.Debugf("initiator's SPI: %016x", ikeSecurityAssociation.RemoteSPI)
+	logger.IKELog.Debugf("responder's SPI: %016x", ikeSecurityAssociation.LocalSPI)
+	logger.IKELog.Debugf("encryption slgorithm: %d", ikeSecurityAssociation.EncryptionAlgorithm.TransformID)
+	logger.IKELog.Debugf("SK_ei: %x", ikeSecurityAssociation.SK_ei)
+	logger.IKELog.Debugf("SK_er: %x", ikeSecurityAssociation.SK_er)
+	logger.IKELog.Debugf("integrity slgorithm: %d", ikeSecurityAssociation.IntegrityAlgorithm.TransformID)
+	logger.IKELog.Debugf("SK_ai: %x", ikeSecurityAssociation.SK_ai)
+	logger.IKELog.Debugf("SK_ar: %x", ikeSecurityAssociation.SK_ar)
+	logger.IKELog.Debugf("SK_pi: %x", ikeSecurityAssociation.SK_pi)
+	logger.IKELog.Debugf("SK_pr: %x", ikeSecurityAssociation.SK_pr)
 
 	return nil
 }
@@ -577,7 +580,7 @@ func DecryptProcedure(ikeSecurityAssociation *context.IKESecurityAssociation, ik
 
 	ikeMessageData, err := ikeMessage.Encode()
 	if err != nil {
-		logger.IKELog.Errorln(err)
+		logger.IKELog.Errorf("error occur when encoding for checksum: %+v", err)
 		return nil, errors.New("encoding IKE message failed")
 	}
 
@@ -718,16 +721,16 @@ func getKeyLength(transformType uint8, transformID uint16, attributePresent bool
 			}
 			return 0, false
 		case message.ENCR_BLOWFISH: // Blowfish support variable key length
-			if attributePresent {
-				if attributeValue < 40 {
-					return 0, false
-				} else if attributeValue > 448 {
-					return 0, false
-				} else {
-					return int(attributeValue / 8), true
-				}
-			} else {
+			if !attributePresent {
 				return 0, false
+			}
+			switch {
+			case attributeValue < 40:
+				return 0, false
+			case attributeValue > 448:
+				return 0, false
+			default:
+				return int(attributeValue / 8), true
 			}
 		case message.ENCR_3IDEA:
 			return 0, false
@@ -736,33 +739,31 @@ func getKeyLength(transformType uint8, transformID uint16, attributePresent bool
 		case message.ENCR_NULL:
 			return 0, true
 		case message.ENCR_AES_CBC:
-			if attributePresent {
-				switch attributeValue {
-				case 128:
-					return 16, true
-				case 192:
-					return 24, true
-				case 256:
-					return 32, true
-				default:
-					return 0, false
-				}
-			} else {
+			if !attributePresent {
+				return 0, false
+			}
+			switch attributeValue {
+			case 128:
+				return 16, true
+			case 192:
+				return 24, true
+			case 256:
+				return 32, true
+			default:
 				return 0, false
 			}
 		case message.ENCR_AES_CTR:
-			if attributePresent {
-				switch attributeValue {
-				case 128:
-					return 20, true
-				case 192:
-					return 28, true
-				case 256:
-					return 36, true
-				default:
-					return 0, false
-				}
-			} else {
+			if !attributePresent {
+				return 0, false
+			}
+			switch attributeValue {
+			case 128:
+				return 20, true
+			case 192:
+				return 28, true
+			case 256:
+				return 36, true
+			default:
 				return 0, false
 			}
 		default:

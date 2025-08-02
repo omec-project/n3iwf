@@ -35,7 +35,7 @@ RUN apk update && apk add --no-cache -U bash
 
 # Install debug tools ~ 50MB (if DEBUG_TOOLS is set to true)
 RUN if [ "$DEBUG_TOOLS" = "true" ]; then \
-        apk update && apk add --no-cache -U vim strace net-tools curl netcat-openbsd bind-tools; \
+        apk update && apk add --no-cache -U vim tcpdump strace net-tools curl netcat-openbsd bind-tools; \
         fi
 
 # Copy executable

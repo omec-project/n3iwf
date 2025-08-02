@@ -8,15 +8,25 @@ package service
 import (
 	"errors"
 	"net"
+	"runtime/debug"
+	"sync"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike"
+	"github.com/omec-project/n3iwf/ike/handler"
 	"github.com/omec-project/n3iwf/logger"
 )
 
-func Run() error {
+var (
+	RECEIVE_IKEPACKET_CHANNEL_LEN = 512
+	RECEIVE_IKEEVENT_CHANNEL_LEN  = 512
+)
+
+func Run(wg *sync.WaitGroup) error {
+	n3iwfSelf := context.N3IWFSelf()
+
 	// Resolve UDP addresses
-	ip := context.N3IWFSelf().IkeBindAddress
+	ip := n3iwfSelf.IkeBindAddress
 	udpAddrPort500, err := net.ResolveUDPAddr("udp", ip+":500")
 	if err != nil {
 		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
@@ -28,29 +38,79 @@ func Run() error {
 		return errors.New("IKE service run failed")
 	}
 
+	n3iwfSelf.IkeServer = NewIkeServer()
+
 	// Listen and serve
 	var errChan chan error
 
 	// Port 500
+	wg.Add(1)
 	errChan = make(chan error)
-	go listenAndServe(udpAddrPort500, errChan)
+	go receiver(udpAddrPort500, n3iwfSelf.IkeServer, errChan, wg)
 	if err, ok := <-errChan; ok {
 		logger.IKELog.Errorln(err)
 		return errors.New("IKE service run failed")
 	}
 
 	// Port 4500
+	wg.Add(1)
 	errChan = make(chan error)
-	go listenAndServe(udpAddrPort4500, errChan)
+	go receiver(udpAddrPort4500, n3iwfSelf.IkeServer, errChan, wg)
 	if err, ok := <-errChan; ok {
 		logger.IKELog.Errorln(err)
 		return errors.New("IKE service run failed")
 	}
 
+	wg.Add(1)
+	go server(n3iwfSelf.IkeServer, wg)
+
 	return nil
 }
 
-func listenAndServe(localAddr *net.UDPAddr, errChan chan<- error) {
+func NewIkeServer() *context.IkeServer {
+	return &context.IkeServer{
+		Listener:    make(map[int]*net.UDPConn),
+		RcvIkePktCh: make(chan context.IkeReceivePacket, RECEIVE_IKEPACKET_CHANNEL_LEN),
+		RcvEventCh:  make(chan context.IkeEvt, RECEIVE_IKEEVENT_CHANNEL_LEN),
+		StopServer:  make(chan struct{}),
+	}
+}
+
+func server(ikeServer *context.IkeServer, wg *sync.WaitGroup) {
+	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.IKELog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+		logger.IKELog.Infof("IKE server stopped")
+		close(ikeServer.RcvIkePktCh)
+		close(ikeServer.StopServer)
+		wg.Done()
+	}()
+
+	for {
+		select {
+		case rcvPkt := <-ikeServer.RcvIkePktCh:
+			logger.IKELog.Debugf("receive IKE packet")
+			ike.Dispatch(&rcvPkt.Listener, &rcvPkt.LocalAddr, &rcvPkt.RemoteAddr, rcvPkt.Msg)
+		case rcvIkeEvent := <-ikeServer.RcvEventCh:
+			handler.HandleEvent(rcvIkeEvent)
+		case <-ikeServer.StopServer:
+			return
+		}
+	}
+}
+
+func receiver(localAddr *net.UDPAddr, ikeServer *context.IkeServer, errChan chan<- error, wg *sync.WaitGroup) {
+	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.IKELog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+		logger.IKELog.Infof("IKE receiver stopped")
+		wg.Done()
+	}()
+
 	listener, err := net.ListenUDP("udp", localAddr)
 	if err != nil {
 		logger.IKELog.Errorf("listen UDP failed: %+v", err)
@@ -60,18 +120,36 @@ func listenAndServe(localAddr *net.UDPAddr, errChan chan<- error) {
 
 	close(errChan)
 
+	ikeServer.Listener[localAddr.Port] = listener
+
 	data := make([]byte, 65535)
 
 	for {
 		n, remoteAddr, err := listener.ReadFromUDP(data)
 		if err != nil {
 			logger.IKELog.Errorf("readFromUDP failed: %+v", err)
-			continue
+			return
 		}
 
 		forwardData := make([]byte, n)
 		copy(forwardData, data[:n])
-
-		go ike.Dispatch(listener, localAddr, remoteAddr, forwardData)
+		ikeServer.RcvIkePktCh <- context.IkeReceivePacket{
+			RemoteAddr: *remoteAddr,
+			Listener:   *listener,
+			LocalAddr:  *localAddr,
+			Msg:        forwardData,
+		}
 	}
+}
+
+func Stop(n3iwfContext *context.N3IWFContext) {
+	logger.IKELog.Infoln("close IKE server")
+
+	for _, ikeServerListener := range n3iwfContext.IkeServer.Listener {
+		if err := ikeServerListener.Close(); err != nil {
+			logger.IKELog.Errorf("stop IKE server: %s error: %+v", ikeServerListener.LocalAddr().String(), err)
+		}
+	}
+
+	n3iwfContext.IkeServer.StopServer <- struct{}{}
 }

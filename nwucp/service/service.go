@@ -6,33 +6,41 @@
 package service
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap/message"
 )
 
+var tcpListener net.Listener
+
 // Run setup N3IWF NAS for UE to forward NAS message
 // to AMF
-func Run() error {
+func Run(wg *sync.WaitGroup) error {
 	// N3IWF context
 	n3iwfSelf := context.N3IWFSelf()
 	tcpAddr := fmt.Sprintf("%s:%d", n3iwfSelf.IpSecGatewayAddress, n3iwfSelf.TcpPort)
 
-	tcpListener, err := net.Listen("tcp", tcpAddr)
+	listener, err := net.Listen("tcp", tcpAddr)
 	if err != nil {
 		logger.NWuCPLog.Errorf("listen TCP address failed: %+v", err)
 		return errors.New("listen failed")
 	}
 
+	tcpListener = listener
+
 	logger.NWuCPLog.Debugf("successfully listen %+v", tcpAddr)
 
-	go listenAndServe(tcpListener)
+	wg.Add(1)
+	go listenAndServe(tcpListener, wg)
 
 	return nil
 }
@@ -41,18 +49,24 @@ func Run() error {
 // requests. It also stores accepted connection into UE
 // context, and finally, calls serveConn() to serve the messages
 // received from the connection.
-func listenAndServe(tcpListener net.Listener) {
+func listenAndServe(listener net.Listener, wg *sync.WaitGroup) {
 	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+
 		err := tcpListener.Close()
 		if err != nil {
 			logger.NWuCPLog.Errorf("error closing tcpListener: %+v", err)
 		}
+		wg.Done()
 	}()
 
 	for {
-		connection, err := tcpListener.Accept()
+		connection, err := listener.Accept()
 		if err != nil {
-			logger.NWuCPLog.Errorln("TCP server accept failed. Close the listener")
+			logger.NWuCPLog.Errorf("TCP server accept failed: %+v. Close the listener...", err)
 			return
 		}
 
@@ -62,67 +76,112 @@ func listenAndServe(tcpListener net.Listener) {
 		// there is any cached NAS message for this UE. If yes, send to it.
 		n3iwfSelf := context.N3IWFSelf()
 
-		ueIP := strings.Split(connection.RemoteAddr().String(), ":")[0]
-		ue, ok := n3iwfSelf.AllocatedUEIPAddressLoad(ueIP)
+		ueIP := strings.SplitN(connection.RemoteAddr().String(), ":", 2)[0]
+		ikeUe, ok := n3iwfSelf.AllocatedUEIPAddressLoad(ueIP)
 		if !ok {
 			logger.NWuCPLog.Errorf("UE context not found for peer %+v", ueIP)
+			_ = connection.Close()
 			continue
 		}
 
-		// Store connection
-		ue.TCPConnection = connection
-
-		if ue.TemporaryCachedNASMessage != nil {
-			// Send to UE
-			if n, err := connection.Write(ue.TemporaryCachedNASMessage); err != nil {
-				logger.NWuCPLog.Errorf("writing via IPSec signaling SA failed: %+v", err)
-			} else {
-				logger.NWuCPLog.Debugln("forward NWu <- N2")
-				logger.NWuCPLog.Debugf("wrote %d bytes", n)
-			}
-			// Clean the cached message
-			ue.TemporaryCachedNASMessage = nil
+		ranUe, err := n3iwfSelf.RanUeLoadFromIkeSPI(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
+		if err != nil {
+			logger.NWuCPLog.Errorf("RanUe context not found: %+v", err)
+			_ = connection.Close()
+			continue
 		}
+		// Store connection
+		ranUe.TCPConnection = connection
 
-		go serveConn(ue, connection)
+		n3iwfSelf.NgapServer.RcvEventCh <- context.NewNASTCPConnEstablishedCompleteEvt(
+			ranUe.RanUeNgapId,
+		)
+
+		wg.Add(1)
+		go serveConn(ranUe, connection, wg)
 	}
 }
 
-// serveConn handles accepted TCP connections. It reads NAS packets
-// from the connection and calls forward() to forward NAS messages
-// to AMF.
-func serveConn(ue *context.N3IWFUe, connection net.Conn) {
+func decapNasMsgFromEnvelope(envelop []byte) []byte {
+	// According to TS 24.502 8.2.4,
+	// in order to transport a NAS message over the non-3GPP access between the UE and the N3IWF,
+	// the NAS message shall be framed in a NAS message envelope as defined in subclause 9.4.
+	// According to TS 24.502 9.4,
+	// a NAS message envelope = Length | NAS Message
+
+	// Get NAS Message Length
+	nasLen := binary.BigEndian.Uint16(envelop[:2])
+	nasMsg := make([]byte, nasLen)
+	copy(nasMsg, envelop[2:2+nasLen])
+
+	return nasMsg
+}
+
+func Stop(n3iwfContext *context.N3IWFContext) {
+	logger.NWuCPLog.Infoln("close Nwucp server")
+
+	if err := tcpListener.Close(); err != nil {
+		logger.NWuCPLog.Errorf("stop nwuup server error: %+v", err)
+	}
+
+	n3iwfContext.RanUePool.Range(
+		func(key, value any) bool {
+			ranUe := value.(*context.N3IWFRanUe)
+			if ranUe.TCPConnection != nil {
+				if err := ranUe.TCPConnection.Close(); err != nil {
+					logger.InitLog.Errorf("stop nwucp server error: %+v", err)
+				}
+			}
+			return true
+		})
+}
+
+// serveConn handle accepted TCP connection. It reads NAS packets
+// from the connection and call forward() to forward NAS messages
+// to AMF
+func serveConn(ranUe *context.N3IWFRanUe, connection net.Conn, wg *sync.WaitGroup) {
 	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+
 		err := connection.Close()
 		if err != nil {
 			logger.NWuCPLog.Errorf("error closing connection: %+v", err)
 		}
+		wg.Done()
 	}()
 
 	data := make([]byte, 65535)
 	for {
 		n, err := connection.Read(data)
 		if err != nil {
-			if err.Error() == "EOF" {
-				logger.NWuCPLog.Warnln("connection close by peer")
-				ue.TCPConnection = nil
-				return
-			} else {
-				logger.NWuCPLog.Errorf("read TCP connection failed: %+v", err)
-			}
+			logger.NWuCPLog.Errorf("read TCP connection failed: %+v", err)
+			ranUe.TCPConnection = nil
+			return
 		}
 		logger.NWuCPLog.Debugf("get NAS PDU from UE: NAS length: %d, NAS content: %s", n, hex.Dump(data[:n]))
 
-		forwardData := make([]byte, n)
-		copy(forwardData, data[:n])
+		// Decap Nas envelope
+		forwardData := decapNasMsgFromEnvelope(data)
 
-		go forward(ue, forwardData)
+		wg.Add(1)
+		go forward(ranUe, forwardData, wg)
 	}
 }
 
 // forward forwards NAS messages sent from UE to the
 // associated AMF
-func forward(ue *context.N3IWFUe, packet []byte) {
+func forward(ranUe *context.N3IWFRanUe, packet []byte, wg *sync.WaitGroup) {
+	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.NWuCPLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+		wg.Done()
+	}()
+
 	logger.NWuCPLog.Debugln("forward NWu -> N2")
-	message.SendUplinkNASTransport(ue.AMF, ue, packet)
+	message.SendUplinkNASTransport(ranUe, packet)
 }

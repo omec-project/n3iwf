@@ -6,6 +6,8 @@
 package message
 
 import (
+	"runtime/debug"
+
 	"git.cs.nctu.edu.tw/calee/sctp"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
@@ -25,6 +27,13 @@ func SendToAmf(amf *context.N3IWFAMF, pkt []byte) {
 }
 
 func SendNGSetupRequest(conn *sctp.SCTPConn) {
+	defer func() {
+		if p := recover(); p != nil {
+			// Print stack for panic to log. Fatalf() will let program exit.
+			logger.NgapLog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+		}
+	}()
+
 	logger.NgapLog.Infoln("send NG Setup Request")
 
 	sctpAddr := conn.RemoteAddr().String()
@@ -85,139 +94,131 @@ func SendNGResetAcknowledge(
 }
 
 func SendInitialContextSetupResponse(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	responseList *ngapType.PDUSessionResourceSetupListCxtRes,
 	failedList *ngapType.PDUSessionResourceFailedToSetupListCxtRes,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send Initial Context Setup Response")
 
-	if responseList != nil && len(responseList.List) > context.MaxNumOfPDUSessions {
-		logger.NgapLog.Errorln("pdu List out of range")
+	if responseList != nil && len(responseList.List) > MaxNumOfPDUSessions {
+		logger.NgapLog.Errorln("pdu list out of range")
 		return
 	}
 
-	if failedList != nil && len(failedList.List) > context.MaxNumOfPDUSessions {
-		logger.NgapLog.Errorln("pdu List out of range")
+	if failedList != nil && len(failedList.List) > MaxNumOfPDUSessions {
+		logger.NgapLog.Errorln("pdu list out of range")
 		return
 	}
 
-	pkt, err := BuildInitialContextSetupResponse(ue, responseList, failedList, criticalityDiagnostics)
+	pkt, err := BuildInitialContextSetupResponse(ranUe, responseList, failedList, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build Initial Context Setup Response failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendInitialContextSetupFailure(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	cause ngapType.Cause,
 	failedList *ngapType.PDUSessionResourceFailedToSetupListCxtFail,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send Initial Context Setup Failure")
 
-	if failedList != nil && len(failedList.List) > context.MaxNumOfPDUSessions {
-		logger.NgapLog.Errorln("pdu List out of range")
+	if failedList != nil && len(failedList.List) > MaxNumOfPDUSessions {
+		logger.NgapLog.Errorln("pdu list out of range")
 		return
 	}
 
-	pkt, err := BuildInitialContextSetupFailure(ue, cause, failedList, criticalityDiagnostics)
+	pkt, err := BuildInitialContextSetupFailure(ranUe, cause, failedList, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build Initial Context Setup Failure failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendUEContextModificationResponse(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send UE Context Modification Response")
 
-	pkt, err := BuildUEContextModificationResponse(ue, criticalityDiagnostics)
+	pkt, err := BuildUEContextModificationResponse(ranUe, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build UE Context Modification Response failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendUEContextModificationFailure(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	cause ngapType.Cause,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send UE Context Modification Failure")
 
-	pkt, err := BuildUEContextModificationFailure(ue, cause, criticalityDiagnostics)
+	pkt, err := BuildUEContextModificationFailure(ranUe, cause, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build UE Context Modification Failure failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendUEContextReleaseComplete(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send UE Context Release Complete")
 
-	pkt, err := BuildUEContextReleaseComplete(ue, criticalityDiagnostics)
+	pkt, err := BuildUEContextReleaseComplete(ranUe, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build UE Context Release Complete failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendUEContextReleaseRequest(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe, cause ngapType.Cause,
+	ranUe *context.N3IWFRanUe, cause ngapType.Cause,
 ) {
 	logger.NgapLog.Infoln("send UE Context Release Request")
 
-	pkt, err := BuildUEContextReleaseRequest(ue, cause)
+	pkt, err := BuildUEContextReleaseRequest(ranUe, cause)
 	if err != nil {
 		logger.NgapLog.Errorf("build UE Context Release Request failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendInitialUEMessage(amf *context.N3IWFAMF,
-	ue *context.N3IWFUe, nasPdu []byte,
+	ranUe *context.N3IWFRanUe, nasPdu []byte,
 ) {
 	logger.NgapLog.Infoln("send Initial UE Message")
 	// Attach To AMF
 
-	pkt, err := BuildInitialUEMessage(ue, nasPdu, nil)
+	pkt, err := BuildInitialUEMessage(ranUe, nasPdu, nil)
 	if err != nil {
 		logger.NgapLog.Errorf("build Initial UE Message failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
-	// ue.AttachAMF()
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendUplinkNASTransport(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	nasPdu []byte,
 ) {
 	logger.NgapLog.Infoln("send Uplink NAS Transport")
@@ -227,18 +228,17 @@ func SendUplinkNASTransport(
 		return
 	}
 
-	pkt, err := BuildUplinkNASTransport(ue, nasPdu)
+	pkt, err := BuildUplinkNASTransport(ranUe, nasPdu)
 	if err != nil {
 		logger.NgapLog.Errorf("build Uplink NAS Transport failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendNASNonDeliveryIndication(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	nasPdu []byte,
 	cause ngapType.Cause,
 ) {
@@ -249,13 +249,13 @@ func SendNASNonDeliveryIndication(
 		return
 	}
 
-	pkt, err := BuildNASNonDeliveryIndication(ue, nasPdu, cause)
+	pkt, err := BuildNASNonDeliveryIndication(ranUe, nasPdu, cause)
 	if err != nil {
 		logger.NgapLog.Errorf("build Uplink NAS Transport failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendRerouteNASRequest() {
@@ -263,59 +263,56 @@ func SendRerouteNASRequest() {
 }
 
 func SendPDUSessionResourceSetupResponse(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	responseList *ngapType.PDUSessionResourceSetupListSURes,
 	failedListSURes *ngapType.PDUSessionResourceFailedToSetupListSURes,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send PDU Session Resource Setup Response")
 
-	if ue == nil {
+	if ranUe == nil {
 		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
 		return
 	}
 
-	pkt, err := BuildPDUSessionResourceSetupResponse(ue, responseList, failedListSURes, criticalityDiagnostics)
+	pkt, err := BuildPDUSessionResourceSetupResponse(ranUe, responseList, failedListSURes, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDU Session Resource Setup Response failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendPDUSessionResourceModifyResponse(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	responseList *ngapType.PDUSessionResourceModifyListModRes,
 	failedList *ngapType.PDUSessionResourceFailedToModifyListModRes,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send PDU Session Resource Modify Response")
 
-	if ue == nil && criticalityDiagnostics == nil {
+	if ranUe == nil && criticalityDiagnostics == nil {
 		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
 		return
 	}
 
-	pkt, err := BuildPDUSessionResourceModifyResponse(ue, responseList, failedList, criticalityDiagnostics)
+	pkt, err := BuildPDUSessionResourceModifyResponse(ranUe, responseList, failedList, criticalityDiagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDU Session Resource Modify Response failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendPDUSessionResourceModifyIndication(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	modifyList []ngapType.PDUSessionResourceModifyItemModInd,
 ) {
 	logger.NgapLog.Infoln("send PDU Session Resource Modify Indication")
 
-	if ue == nil {
+	if ranUe == nil {
 		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
 		return
 	}
@@ -324,61 +321,59 @@ func SendPDUSessionResourceModifyIndication(
 		return
 	}
 
-	pkt, err := BuildPDUSessionResourceModifyIndication(ue, modifyList)
+	pkt, err := BuildPDUSessionResourceModifyIndication(ranUe, modifyList)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDU Session Resource Modify Indication failed : %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendPDUSessionResourceNotify(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	notiList *ngapType.PDUSessionResourceNotifyList,
 	relList *ngapType.PDUSessionResourceReleasedListNot,
 ) {
 	logger.NgapLog.Infoln("send PDU Session Resource Notify")
 
-	if ue == nil {
+	if ranUe == nil {
 		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
 		return
 	}
 
-	pkt, err := BuildPDUSessionResourceNotify(ue, notiList, relList)
+	pkt, err := BuildPDUSessionResourceNotify(ranUe, notiList, relList)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDUSession Resource Notify failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendPDUSessionResourceReleaseResponse(
-	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	relList ngapType.PDUSessionResourceReleasedListRelRes,
 	diagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send PDU Session Resource Release Response")
 
-	if ue == nil {
+	if ranUe == nil {
 		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
 		return
 	}
-	if len(relList.List) < 1 {
+	if len(relList.List) == 0 {
 		logger.NgapLog.Errorln("PDUSessionResourceReleasedListRelRes is nil. This message shall contain at least one Item")
 		return
 	}
 
-	pkt, err := BuildPDUSessionResourceReleaseResponse(ue, relList, diagnostics)
+	pkt, err := BuildPDUSessionResourceReleaseResponse(ranUe, relList, diagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDU Session Resource Release Response failed: %+v", err)
 		return
 	}
 
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendErrorIndication(
@@ -437,17 +432,17 @@ func SendUERadioCapabilityInfoIndication() {
 
 func SendUERadioCapabilityCheckResponse(
 	amf *context.N3IWFAMF,
-	ue *context.N3IWFUe,
+	ranUe *context.N3IWFRanUe,
 	diagnostics *ngapType.CriticalityDiagnostics,
 ) {
 	logger.NgapLog.Infoln("send UE Radio Capability Check Response")
 
-	pkt, err := BuildUERadioCapabilityCheckResponse(ue, diagnostics)
+	pkt, err := BuildUERadioCapabilityCheckResponse(ranUe, diagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build UERadio Capability Check Response failed: %+v", err)
 		return
 	}
-	SendToAmf(amf, pkt)
+	SendToAmf(ranUe.AMF, pkt)
 }
 
 func SendAMFConfigurationUpdateAcknowledge(

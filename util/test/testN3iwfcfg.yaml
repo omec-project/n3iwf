@@ -41,7 +41,7 @@ configuration:
   nasTcpPort: 20000
 
   gtpBindAddress: "127.0.0.1"
-  localSctpAddress: 10.100.200.1
+  localSctpAddress: "10.100.200.1"
 
   fqdn: n3iwf.aether.org
 

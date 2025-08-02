@@ -10,6 +10,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -21,10 +22,12 @@ import (
 )
 
 const (
-	NGAP_SCTP_PORT    int = 38412
-	requiredTacLength int = 6
-	requiredSstLength int = 2
-	requiredSdLength  int = 6
+	ngap_sctp_port           int    = 38412
+	requiredTacLength        int    = 6
+	requiredSstLength        int    = 2
+	requiredSdLength         int    = 6
+	defaultXfrmInterfaceId   uint32 = 7
+	defaultXfrmInterfaceName string = "ipsec"
 )
 
 func InitN3IWFContext() bool {
@@ -62,7 +65,7 @@ func InitN3IWFContext() bool {
 		// Port
 		amfSCTPAddr.Port = amfAddress.Port
 		if amfAddress.Port == 0 {
-			amfSCTPAddr.Port = NGAP_SCTP_PORT
+			amfSCTPAddr.Port = ngap_sctp_port
 		}
 		// Append to context
 		n3iwfContext.AmfSctpAddresses = append(n3iwfContext.AmfSctpAddresses, amfSCTPAddr)
@@ -70,7 +73,7 @@ func InitN3IWFContext() bool {
 
 	// Local SCTP address
 	if factory.N3iwfConfig.Configuration.LocalSctpAddress == "" {
-		logger.ContextLog.Errorln("Local SCTP bind address is empty")
+		logger.ContextLog.Errorln("local SCTP bind address is empty")
 		return false
 	}
 	localSCTPAddr := new(sctp.SCTPAddr)
@@ -82,7 +85,7 @@ func InitN3IWFContext() bool {
 	}
 	localSCTPAddr.IPAddrs = append(localSCTPAddr.IPAddrs, *ipAddr)
 	// Port
-	localSCTPAddr.Port = NGAP_SCTP_PORT
+	localSCTPAddr.Port = ngap_sctp_port
 	n3iwfContext.LocalSctpAddress = localSCTPAddr
 
 	// IKE bind address
@@ -104,6 +107,18 @@ func InitN3IWFContext() bool {
 		return false
 	}
 	n3iwfContext.IpSecGatewayAddress = n3iwfIpAddr.String()
+
+	// UE IP address range
+	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
+		logger.ContextLog.Errorln("UE IP address range is empty")
+		return false
+	}
+	_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
+	if err != nil {
+		logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
+		return false
+	}
+	n3iwfContext.Subnet = ueNetworkAddr
 
 	// GTP bind address
 	if factory.N3iwfConfig.Configuration.GtpBindAddress == "" {
@@ -202,17 +217,25 @@ func InitN3IWFContext() bool {
 	}
 	n3iwfContext.N3iwfCertificate = block.Bytes
 
-	// UE IP address range
-	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
-		logger.ContextLog.Errorln("UE IP address range is empty")
-		return false
-	}
-	_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
+	// XFRM related
+	ikeBindIfaceName, err := getInterfaceName(factory.N3iwfConfig.Configuration.IkeBindAddress)
 	if err != nil {
-		logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
+		logger.ContextLog.Error(err)
 		return false
 	}
-	n3iwfContext.Subnet = ueNetworkAddr
+	n3iwfContext.XfrmParentIfaceName = ikeBindIfaceName
+
+	n3iwfContext.XfrmInterfaceName = factory.N3iwfConfig.Configuration.XfrmInterfaceName
+	if n3iwfContext.XfrmInterfaceName == "" {
+		n3iwfContext.XfrmInterfaceName = defaultXfrmInterfaceName
+		logger.ContextLog.Warnln("XFRM interface Name is empty, set to default", n3iwfContext.XfrmInterfaceName)
+	}
+
+	n3iwfContext.XfrmInterfaceId = factory.N3iwfConfig.Configuration.XfrmInterfaceId
+	if n3iwfContext.XfrmInterfaceId == 0 {
+		n3iwfContext.XfrmInterfaceId = defaultXfrmInterfaceId
+		logger.ContextLog.Warnln("XFRM interface id is not defined, set to default value", n3iwfContext.XfrmInterfaceId)
+	}
 
 	return true
 }
@@ -224,7 +247,7 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 		// Checking Tac
 		tacLength := len(supportedTAItem.Tac)
 		if tacLength == 0 {
-			logger.ContextLog.Errorln("Tac is mandatory")
+			logger.ContextLog.Errorln("tac is mandatory")
 			return false
 		}
 		switch {
@@ -238,8 +261,8 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 		}
 
 		// Checking Sst and Sd
-		for plmnListIndex := range supportedTAItem.BroadcastPLMNList {
-			broadcastPLMNItem := &supportedTAItem.BroadcastPLMNList[plmnListIndex]
+		for plmnListIndex := range supportedTAItem.BroadcastPlmnList {
+			broadcastPLMNItem := &supportedTAItem.BroadcastPlmnList[plmnListIndex]
 
 			for sliceListIndex := range broadcastPLMNItem.TaiSliceSupportList {
 				sliceSupportItem := &broadcastPLMNItem.TaiSliceSupportList[sliceListIndex]
@@ -247,36 +270,60 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 				// Sst
 				sstLength := len(sliceSupportItem.Snssai.Sst)
 				if sstLength == 0 {
-					logger.ContextLog.Errorln("Sst is mandatory")
+					logger.ContextLog.Errorln("sst is mandatory")
 					return false
 				}
 
-				switch {
-				case sstLength < requiredSstLength:
-					logger.ContextLog.Debugf("detected configuration Sst length < %d", requiredSstLength)
-					sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
-					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
-				case sstLength > requiredSstLength:
-					logger.ContextLog.Errorf("detected configuration Sst length > %d", requiredSstLength)
+				if sstLength > requiredSstLength {
+					logger.ContextLog.Errorf("detect configuration sst length > %d", requiredSstLength)
 					return false
 				}
+				logger.ContextLog.Debugf("detect configuration sst length < %d", requiredSstLength)
+				sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
+				logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
 
 				// Sd
-				sdLength := len(sliceSupportItem.Snssai.Sd)
-				if sdLength != 0 {
-					switch {
-					case sdLength < requiredSdLength:
-						logger.ContextLog.Debugf("detected configuration Sd length < %d", requiredSdLength)
-						sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-len(sliceSupportItem.Snssai.Sd)) + sliceSupportItem.Snssai.Sd
-						logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
-					case sdLength > requiredSdLength:
-						logger.ContextLog.Errorf("detected configuration Sd length > %d", requiredSdLength)
-						return false
-					}
+				if sliceSupportItem.Snssai.Sd == "" {
+					logger.ContextLog.Infoln("Snssai does not include sd")
+					continue
 				}
+				sdLength := len(sliceSupportItem.Snssai.Sd)
+				if sdLength > requiredSdLength {
+					logger.ContextLog.Errorf("detected configuration sd length > %d", requiredSdLength)
+					return false
+				}
+				logger.ContextLog.Debugf("detected configuration sd length < %d", requiredSdLength)
+				sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-sdLength) + sliceSupportItem.Snssai.Sd
+				logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
 			}
 		}
 	}
 
 	return true
+}
+
+func getInterfaceName(IPAddress string) (interfaceName string, err error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "nil", err
+	}
+
+	res, err := net.ResolveIPAddr("ip4", IPAddress)
+	if err != nil {
+		return "", fmt.Errorf("error resolving address '%s': %v", IPAddress, err)
+	}
+	IPAddress = res.String()
+
+	for _, inter := range interfaces {
+		addrs, err := inter.Addrs()
+		if err != nil {
+			return "nil", err
+		}
+		for _, addr := range addrs {
+			if IPAddress == addr.String()[0:strings.Index(addr.String(), "/")] {
+				return inter.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("cannot find interface name")
 }
