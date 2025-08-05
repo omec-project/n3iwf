@@ -7,6 +7,7 @@ package context
 
 import (
 	"bytes"
+	"fmt"
 
 	"git.cs.nctu.edu.tw/calee/sctp"
 	"github.com/omec-project/aper"
@@ -25,7 +26,7 @@ type N3IWFAMF struct {
 	// Overload related
 	AMFOverloadContent *AMFOverloadContent
 	// Relative Context
-	N3iwfUeList map[int64]*N3IWFUe // ranUeNgapId as key
+	N3iwfRanUeList map[int64]*N3IWFRanUe // ranUeNgapId as key
 }
 
 type AMFTNLAssociationItem struct {
@@ -51,22 +52,24 @@ func (amf *N3IWFAMF) init(sctpAddr string, conn *sctp.SCTPConn) {
 	amf.SCTPAddr = sctpAddr
 	amf.SCTPConn = conn
 	amf.AMFTNLAssociationList = make(map[string]*AMFTNLAssociationItem)
-	amf.N3iwfUeList = make(map[int64]*N3IWFUe)
+	amf.N3iwfRanUeList = make(map[int64]*N3IWFRanUe)
 }
 
-func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) *N3IWFUe {
-	for _, n3iwfUe := range amf.N3iwfUeList {
-		if n3iwfUe.AmfUeNgapId == id {
-			return n3iwfUe
-		}
+func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) *N3IWFRanUe {
+	if ue, ok := amf.N3iwfRanUeList[id]; ok {
+		return ue
 	}
 	return nil
 }
 
-func (amf *N3IWFAMF) RemoveAllRelatedUe() {
-	for _, ue := range amf.N3iwfUeList {
-		ue.Remove()
+func (amf *N3IWFAMF) RemoveAllRelatedUe() error {
+	for id, ranUe := range amf.N3iwfRanUeList {
+		if err := ranUe.Remove(); err != nil {
+			return fmt.Errorf("RemoveAllRelatedUe error: %+v", err)
+		}
+		delete(amf.N3iwfRanUeList, id)
 	}
+	return nil
 }
 
 func (amf *N3IWFAMF) AddAMFTNLAssociationItem(info ngapType.CPTransportLayerInformation) *AMFTNLAssociationItem {
@@ -136,6 +139,16 @@ func (amf *N3IWFAMF) FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI *ngapType.G
 			return false
 		}
 		if !bytes.Equal(codedAMFServedGUAMI, codedUESpecifiedGUAMI) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (amf *N3IWFAMF) FindAvalibleAMFByCompareSelectedPLMNId(ueSpecifiedSelectedPLMNId *ngapType.PLMNIdentity) bool {
+	for _, amfServedPLMNId := range amf.PLMNSupportList.List {
+		if !bytes.Equal(amfServedPLMNId.PLMNIdentity.Value, ueSpecifiedSelectedPLMNId.Value) {
 			continue
 		}
 		return true

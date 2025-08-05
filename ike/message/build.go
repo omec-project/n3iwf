@@ -168,6 +168,17 @@ func (container *ProposalContainer) BuildProposal(proposalNumber uint8, protocol
 	return proposal
 }
 
+func (container *IKEPayloadContainer) BuildDeletePayload(
+	protocolID uint8, SPISize uint8, numberOfSPI uint16, SPIs []byte,
+) {
+	deletePayload := new(Delete)
+	deletePayload.ProtocolID = protocolID
+	deletePayload.SPISize = SPISize
+	deletePayload.NumberOfSPI = numberOfSPI
+	deletePayload.SPIs = SPIs
+	*container = append(*container, deletePayload)
+}
+
 func (container *TransformContainer) Reset() {
 	*container = nil
 }
@@ -253,12 +264,8 @@ func (container *IKEPayloadContainer) BuildEAP5GNAS(identifier uint8, nasPDU []b
 	eap.EAPTypeData.BuildEAPExpanded(VendorID3GPP, VendorTypeEAP5G, vendorData)
 }
 
-func (container *IKEPayloadContainer) BuildNotify5G_QOS_INFO(
-	pduSessionID uint8,
-	qfiList []uint8,
-	isDefault bool,
-	isDSCPSpecified bool,
-	DSCP uint8,
+func (container *IKEPayloadContainer) BuildNotify5G_QOS_INFO(pduSessionID uint8,
+	qfiList []uint8, isDefault bool, isDSCPSpecified bool, DSCP uint8,
 ) {
 	notifyData := make([]byte, 1) // For length
 	// Append PDU session ID
@@ -290,27 +297,24 @@ func (container *IKEPayloadContainer) BuildNotify5G_QOS_INFO(
 func (container *IKEPayloadContainer) BuildNotifyNAS_IP4_ADDRESS(nasIPAddr string) {
 	if nasIPAddr == "" {
 		return
-	} else {
-		ipAddrByte := net.ParseIP(nasIPAddr).To4()
-		container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeNAS_IP4_ADDRESS, nil, ipAddrByte)
 	}
+	ipAddrByte := net.ParseIP(nasIPAddr).To4()
+	container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeNAS_IP4_ADDRESS, nil, ipAddrByte)
 }
 
 func (container *IKEPayloadContainer) BuildNotifyUP_IP4_ADDRESS(upIPAddr string) {
 	if upIPAddr == "" {
 		return
-	} else {
-		ipAddrByte := net.ParseIP(upIPAddr).To4()
-		container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeUP_IP4_ADDRESS, nil, ipAddrByte)
 	}
+	ipAddrByte := net.ParseIP(upIPAddr).To4()
+	container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeUP_IP4_ADDRESS, nil, ipAddrByte)
 }
 
 func (container *IKEPayloadContainer) BuildNotifyNAS_TCP_PORT(port uint16) {
 	if port == 0 {
 		return
-	} else {
-		portData := make([]byte, 2)
-		binary.BigEndian.PutUint16(portData, port)
-		container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeNAS_TCP_PORT, nil, portData)
 	}
+	portData := make([]byte, 2)
+	binary.BigEndian.PutUint16(portData, port)
+	container.BuildNotification(TypeNone, Vendor3GPPNotifyTypeNAS_TCP_PORT, nil, portData)
 }

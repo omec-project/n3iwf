@@ -6,6 +6,8 @@
 package factory
 
 import (
+	"time"
+
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/util/logger"
 )
@@ -33,14 +35,22 @@ type Configuration struct {
 	IpSecAddress         string                     `yaml:"ipSecAddress"` // e.g. 10.0.1.0/24
 	GtpBindAddress       string                     `yaml:"gtpBindAddress"`
 	TcpPort              uint16                     `yaml:"nasTcpPort"`
-	Fqdn                 string                     `yaml:"fqdn"`                 // e.g. n3iwf.aether.org
-	PrivateKey           string                     `yaml:"privateKey"`           // file path
-	CertificateAuthority string                     `yaml:"certificateAuthority"` // file path
-	Certificate          string                     `yaml:"certificate"`          // file path
-	InterfaceMark        uint32                     `yaml:"ipSecInterfaceMark"`   // must be != 0, if not specified, set to `7`
+	Fqdn                 string                     `yaml:"fqdn"` // e.g. n3iwf.aether.org
+	PrivateKey           string                     `yaml:"privateKey"`
+	CertificateAuthority string                     `yaml:"certificateAuthority"`
+	Certificate          string                     `yaml:"certificate"`
+	XfrmInterfaceName    string                     `yaml:"xfrmInterfaceName"`
+	XfrmInterfaceId      uint32                     `yaml:"xfrmInterfaceId"` // must be != 0
+	LivenessCheck        TimerValue                 `yaml:"livenessCheck"`
 }
 
-func (c *Config) GetVersion() string {
+type TimerValue struct {
+	Enable        bool          `yaml:"enable"`
+	TransFreq     time.Duration `yaml:"transFreq"`
+	MaxRetryTimes int32         `yaml:"maxRetryTimes,omitempty"`
+}
+
+func (c *Config) getVersion() string {
 	if c.Info != nil && c.Info.Version != "" {
 		return c.Info.Version
 	}

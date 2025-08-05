@@ -30,7 +30,7 @@ func InitConfigFactory(f string) error {
 }
 
 func CheckConfigVersion() error {
-	currentVersion := N3iwfConfig.GetVersion()
+	currentVersion := N3iwfConfig.getVersion()
 
 	if currentVersion != N3IWF_EXPECTED_CONFIG_VERSION {
 		return fmt.Errorf("config version is [%s], but expected is [%s]",

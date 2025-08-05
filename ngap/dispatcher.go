@@ -10,11 +10,14 @@ import (
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap/handler"
+	"github.com/omec-project/n3iwf/util"
 	"github.com/omec-project/ngap"
 	"github.com/omec-project/ngap/ngapType"
 )
 
 func Dispatch(conn *sctp.SCTPConn, msg []byte) {
+	defer util.RecoverWithLog(logger.NgapLog)
+
 	// AMF SCTP address
 	sctpAddr := conn.RemoteAddr().String()
 	// AMF context

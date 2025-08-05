@@ -9,24 +9,14 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	Crand "crypto/rand"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"io"
-	Mrand "math/rand"
+	mathRand "math/rand"
 	"net"
 	"testing"
 )
-
-var conn net.Conn
-
-func init() {
-	if connTmp, err := net.Dial("udp", "127.0.0.1:500"); err != nil {
-		panic(err)
-	} else {
-		conn = connTmp
-	}
-}
 
 // TestEncodeDecode tests the Encode() and Decode() function using the data
 // built manually.
@@ -37,11 +27,15 @@ func init() {
 // Third, send the encoded data to the UDP connection for verification with Wireshark.
 // Compare the dataFirstEncode and dataSecondEncode and return the result.
 func TestEncodeDecode(t *testing.T) {
+	conn, err := net.Dial("udp", "127.0.0.1:500")
+	if err != nil {
+		t.Fatalf("udp Dial failed: %+v", err)
+	}
 	testPacket := &IKEMessage{}
 
 	// generate a random SPI
-	src := Mrand.NewSource(63579)
-	localRand := Mrand.New(src)
+	src := mathRand.NewSource(63579)
+	localRand := mathRand.New(src)
 	ispi := localRand.Uint64()
 
 	testPacket.InitiatorSPI = ispi
@@ -328,7 +322,8 @@ func TestEncodeDecode(t *testing.T) {
 	// ciphertext
 	cipherText := make([]byte, aes.BlockSize+len(ikePayloadDataForSK))
 	iv := cipherText[:aes.BlockSize]
-	if _, err := io.ReadFull(Crand.Reader, iv); err != nil {
+	_, err = io.ReadFull(rand.Reader, iv)
+	if err != nil {
 		t.Fatalf("IO ReadFull failed: %+v", err)
 	}
 
@@ -341,7 +336,6 @@ func TestEncodeDecode(t *testing.T) {
 	testPacket.Payloads = append(testPacket.Payloads, testSK)
 
 	var dataFirstEncode, dataSecondEncode []byte
-	var err error
 	decodedPacket := new(IKEMessage)
 
 	if dataFirstEncode, err = testPacket.Encode(); err != nil {

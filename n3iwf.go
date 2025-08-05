@@ -23,7 +23,7 @@ func init() {
 func main() {
 	app := &cli.Command{}
 	app.Name = "n3iwf"
-	logger.AppLog.Infof("Starting Non-3GPP Interworking Function (N3IWF): %s", app.Name)
+	logger.AppLog.Infof("starting Non-3GPP Interworking Function: %s", app.Name)
 	app.Usage = "Non-3GPP Interworking Function"
 	app.UsageText = "n3iwf -cfg <n3iwf_config_file.conf>"
 	app.Action = action

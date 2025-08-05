@@ -6,13 +6,14 @@
 package context
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 
 	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/ngap/ngapType"
+	"github.com/vishvananda/netlink"
 	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 )
 
@@ -20,41 +21,63 @@ const (
 	AmfUeNgapIdUnspecified int64 = 0xffffffffff
 )
 
-type N3IWFUe struct {
+type N3IWFIkeUe struct {
 	/* UE identity */
-	RanUeNgapId      int64
-	AmfUeNgapId      int64
-	IPAddrv4         string
-	IPAddrv6         string
-	PortNumber       int32
-	MaskedIMEISV     *ngapType.MaskedIMEISV // TS 38.413 9.3.1.54
-	Guti             string
 	IPSecInnerIP     net.IP
 	IPSecInnerIPAddr *net.IPAddr // Used to send UP packets to UE
 
+	/* IKE Security Association */
+	N3IWFIKESecurityAssociation   *IKESecurityAssociation
+	N3IWFChildSecurityAssociation map[uint32]*ChildSecurityAssociation // inbound SPI as key
+
+	/* Temporary Mapping of two SPIs */
+	// Exchange Message ID(including a SPI) and ChildSA(including a SPI)
+	// Mapping of Message ID of exchange in IKE and Child SA when creating new child SA
+	TemporaryExchangeMsgIDChildSAMapping map[uint32]*ChildSecurityAssociation // Message ID as a key
+
+	/* Security */
+	Kn3iwf []uint8 // 32 bytes (256 bits), value is from NGAP IE "Security Key"
+
+	/* NAS IKE Connection */
+	IKEConnection *UDPSocketInfo
+
+	// Length of PDU Session List
+	PduSessionListLen int
+}
+
+type N3IWFRanUe struct {
+	/* UE identity */
+	RanUeNgapId  int64
+	AmfUeNgapId  int64
+	IPAddrv4     string
+	IPAddrv6     string
+	PortNumber   int32
+	MaskedIMEISV *ngapType.MaskedIMEISV // TS 38.413 9.3.1.54
+	Guti         string
+
 	/* Relative Context */
 	AMF *N3IWFAMF
+
+	/* Security */
+	SecurityCapabilities *ngapType.UESecurityCapabilities // TS 38.413 9.3.1.86
 
 	/* PDU Session */
 	PduSessionList map[int64]*PDUSession // pduSessionId as key
 
 	/* PDU Session Setup Temporary Data */
 	TemporaryPDUSessionSetupData *PDUSessionSetupTemporaryData
+
 	/* Temporary cached NAS message */
 	// Used when NAS registration accept arrived before
-	// UE setup NAS TCP connection with N3IWF
+	// UE setup NAS TCP connection with N3IWF, and
+	// Forward pduSessionEstablishmentAccept to UE after
+	// UE send CREATE_CHILD_SA response
 	TemporaryCachedNASMessage []byte
 
-	/* Security */
-	Kn3iwf               []uint8                          // 32 bytes (256 bits), value is from NGAP IE "Security Key"
-	SecurityCapabilities *ngapType.UESecurityCapabilities // TS 38.413 9.3.1.86
+	/* NAS TCP Connection Established */
+	IsNASTCPConnEstablished         bool
+	IsNASTCPConnEstablishedComplete bool
 
-	/* IKE Security Association */
-	N3IWFIKESecurityAssociation   *IKESecurityAssociation
-	N3IWFChildSecurityAssociation *ChildSecurityAssociation
-
-	/* NAS IKE Connection */
-	IKEConnection *UDPSocketInfo
 	/* NAS TCP Connection */
 	TCPConnection net.Conn
 
@@ -67,6 +90,7 @@ type N3IWFUe struct {
 	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformation // TS 38.413 9.3.1.15
 	IMSVoiceSupported                int32
 	RRCEstablishmentCause            int16
+	PduSessionReleaseList            ngapType.PDUSessionResourceReleasedListRelRes
 }
 
 type PDUSession struct {
@@ -86,7 +110,7 @@ type PDUSession struct {
 
 type PDUSessionSetupTemporaryData struct {
 	// Slice of unactivated PDU session
-	UnactivatedPDUSession []int64 // PDUSessionID as content
+	UnactivatedPDUSession []*PDUSession // PDUSession as content
 	// NGAPProcedureCode is used to identify which type of
 	// response shall be used
 	NGAPProcedureCode ngapType.ProcedureCode
@@ -95,6 +119,16 @@ type PDUSessionSetupTemporaryData struct {
 	FailedListCxtRes *ngapType.PDUSessionResourceFailedToSetupListCxtRes
 	SetupListSURes   *ngapType.PDUSessionResourceSetupListSURes
 	FailedListSURes  *ngapType.PDUSessionResourceFailedToSetupListSURes
+	// List of Error for failed setup PDUSessionID
+	FailedErrStr []EvtError // Error string as content
+	// Current Index of UnactivatedPDUSession
+	Index int
+}
+
+type IkeMsgTemporaryData struct {
+	SecurityAssociation      *ike_message.SecurityAssociation
+	TrafficSelectorInitiator *ike_message.TrafficSelectorInitiator
+	TrafficSelectorResponder *ike_message.TrafficSelectorResponder
 }
 
 type QosFlow struct {
@@ -116,7 +150,8 @@ type IKESecurityAssociation struct {
 	LocalSPI  uint64
 
 	// Message ID
-	MessageID uint32
+	InitiatorMessageID uint32
+	ResponderMessageID uint32
 
 	// Transforms for IKE SA
 	EncryptionAlgorithm    *ike_message.Transform
@@ -149,9 +184,12 @@ type IKESecurityAssociation struct {
 	TrafficSelectorResponder *ike_message.TrafficSelectorResponder
 	LastEAPIdentifier        uint8
 
+	// UDP Connection
+	IKEConnection *UDPSocketInfo
+
 	// Authentication data
-	LocalUnsignedAuthentication  []byte
-	RemoteUnsignedAuthentication []byte
+	ResponderSignedOctets []byte
+	InitiatorSignedOctets []byte
 
 	// NAT detection
 	// If UEIsBehindNAT == true, N3IWF should enable NAT traversal and
@@ -160,13 +198,28 @@ type IKESecurityAssociation struct {
 	// If N3IWFIsBehindNAT == true, N3IWF should send UDP keepalive periodically
 	N3IWFIsBehindNAT bool
 
-	// UE context
-	ThisUE *N3IWFUe
+	// IKE UE context
+	IkeUE *N3IWFIkeUe
+
+	// Temporary store the receive ike message
+	TemporaryIkeMsg *IkeMsgTemporaryData
+
+	DPDReqRetransTimer *Timer // The time from sending the DPD request to receiving the response
+	CurrentRetryTimes  int32  // Accumulate the number of times the DPD response wasn't received
+	IKESAClosedCh      chan struct{}
+	IsUseDPD           bool
 }
 
 type ChildSecurityAssociation struct {
 	// SPI
-	SPI uint32
+	InboundSPI  uint32 // N3IWF Specify
+	OutboundSPI uint32 // Non-3GPP UE Specify
+
+	// Associated XFRM interface
+	XfrmIface netlink.Link
+
+	XfrmStateList  []netlink.XfrmState
+	XfrmPolicyList []netlink.XfrmPolicy
 
 	// IP address
 	PeerPublicIPAddr  net.IP
@@ -191,8 +244,11 @@ type ChildSecurityAssociation struct {
 	N3IWFPort         int
 	NATPort           int
 
-	// UE context
-	ThisUE *N3IWFUe
+	// PDU Session IDs associated with this child SA
+	PDUSessionIds []int64
+
+	// IKE UE context
+	IkeUE *N3IWFIkeUe
 }
 
 type UDPSocketInfo struct {
@@ -201,35 +257,96 @@ type UDPSocketInfo struct {
 	UEAddr    *net.UDPAddr
 }
 
-func (ue *N3IWFUe) init(ranUeNgapId int64) {
-	ue.RanUeNgapId = ranUeNgapId
-	ue.AmfUeNgapId = AmfUeNgapIdUnspecified
-	ue.PduSessionList = make(map[int64]*PDUSession)
+func (ikeUe *N3IWFIkeUe) init() {
+	ikeUe.N3IWFChildSecurityAssociation = make(map[uint32]*ChildSecurityAssociation)
+	ikeUe.TemporaryExchangeMsgIDChildSAMapping = make(map[uint32]*ChildSecurityAssociation)
 }
 
-func (ue *N3IWFUe) Remove() {
-	// remove from AMF context
-	ue.DetachAMF()
-	// remove from N3IWF context
+func (ranUe *N3IWFRanUe) init(ranUeNgapId int64) {
+	ranUe.RanUeNgapId = ranUeNgapId
+	ranUe.AmfUeNgapId = AmfUeNgapIdUnspecified
+	ranUe.PduSessionList = make(map[int64]*PDUSession)
+	ranUe.IsNASTCPConnEstablished = false
+	ranUe.IsNASTCPConnEstablishedComplete = false
+}
+
+func (ikeUe *N3IWFIkeUe) Remove() error {
+	if ikeUe.N3IWFIKESecurityAssociation.IsUseDPD {
+		ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh <- struct{}{}
+	}
+
+	// remove from IKE UE context
 	n3iwfSelf := N3IWFSelf()
-	n3iwfSelf.DeleteN3iwfUe(ue.RanUeNgapId)
-	n3iwfSelf.DeleteIKESecurityAssociation(ue.N3IWFIKESecurityAssociation.LocalSPI)
-	n3iwfSelf.DeleteInternalUEIPAddr(ue.IPSecInnerIP.String())
-	for _, pduSession := range ue.PduSessionList {
+	n3iwfSelf.DeleteIKESecurityAssociation(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
+	n3iwfSelf.DeleteInternalUEIPAddr(ikeUe.IPSecInnerIP.String())
+
+	for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+		if err := ikeUe.DeleteChildSA(childSA); err != nil {
+			return err
+		}
+	}
+	n3iwfSelf.DeleteIKEUe(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
+
+	return nil
+}
+
+func (ranUe *N3IWFRanUe) Remove() error {
+	// remove from AMF context
+	ranUe.DetachAMF()
+
+	// remove from RAN UE context
+	n3iwfSelf := N3IWFSelf()
+	n3iwfSelf.DeleteRanUe(ranUe.RanUeNgapId)
+
+	for _, pduSession := range ranUe.PduSessionList {
 		n3iwfSelf.DeleteTEID(pduSession.GTPConnection.IncomingTEID)
 	}
-}
 
-func (ue *N3IWFUe) FindPDUSession(pduSessionID int64) *PDUSession {
-	if pduSession, ok := ue.PduSessionList[pduSessionID]; ok {
-		return pduSession
-	} else {
-		return nil
+	if err := ranUe.TCPConnection.Close(); err != nil {
+		return fmt.Errorf("stop nwucp server error: %+v", err)
 	}
+
+	return nil
 }
 
-func (ue *N3IWFUe) CreatePDUSession(pduSessionID int64, snssai ngapType.SNSSAI) (*PDUSession, error) {
-	if _, exists := ue.PduSessionList[pduSessionID]; exists {
+func (ikeUe *N3IWFIkeUe) DeleteChildSA(childSA *ChildSecurityAssociation) error {
+	n3iwfSelf := N3IWFSelf()
+	iface := childSA.XfrmIface
+
+	// Delete child SA xfrmState
+	for _, xfrmState := range childSA.XfrmStateList {
+		if err := netlink.XfrmStateDel(&xfrmState); err != nil {
+			return fmt.Errorf("delete xfrmstate error: %+v", err)
+		}
+	}
+	// Delete child SA xfrmPolicy
+	for _, xfrmPolicy := range childSA.XfrmPolicyList {
+		if err := netlink.XfrmPolicyDel(&xfrmPolicy); err != nil {
+			return fmt.Errorf("delete xfrmPolicy error: %+v", err)
+		}
+	}
+
+	if iface == nil || iface.Attrs().Name == "xfrmi-default" {
+	} else if err := netlink.LinkDel(iface); err != nil {
+		return fmt.Errorf("delete interface %s fail: %+v", iface.Attrs().Name, err)
+	} else {
+		n3iwfSelf.XfrmIfaces.Delete(uint32(childSA.XfrmStateList[0].Ifid))
+	}
+
+	delete(ikeUe.N3IWFChildSecurityAssociation, childSA.InboundSPI)
+
+	return nil
+}
+
+func (ranUe *N3IWFRanUe) FindPDUSession(pduSessionID int64) *PDUSession {
+	if pduSession, ok := ranUe.PduSessionList[pduSessionID]; ok {
+		return pduSession
+	}
+	return nil
+}
+
+func (ranUe *N3IWFRanUe) CreatePDUSession(pduSessionID int64, snssai ngapType.SNSSAI) (*PDUSession, error) {
+	if _, exists := ranUe.PduSessionList[pduSessionID]; exists {
 		return nil, fmt.Errorf("PDU Session[ID:%d] is already exists", pduSessionID)
 	}
 	pduSession := &PDUSession{
@@ -237,14 +354,34 @@ func (ue *N3IWFUe) CreatePDUSession(pduSessionID int64, snssai ngapType.SNSSAI) 
 		Snssai:   snssai,
 		QosFlows: make(map[int64]*QosFlow),
 	}
-	ue.PduSessionList[pduSessionID] = pduSession
+	ranUe.PduSessionList[pduSessionID] = pduSession
 	return pduSession, nil
 }
 
-func (ue *N3IWFUe) CreateIKEChildSecurityAssociation(
+// When N3IWF send CREATE_CHILD_SA request to N3UE, the inbound SPI of childSA will be only stored first until
+// receive response and call CompleteChildSAWithProposal to fill the all data of childSA
+func (ikeUe *N3IWFIkeUe) CreateHalfChildSA(msgID, inboundSPI uint32, pduSessionID int64) {
+	childSA := new(ChildSecurityAssociation)
+	childSA.InboundSPI = inboundSPI
+	childSA.PDUSessionIds = append(childSA.PDUSessionIds, pduSessionID)
+	// Link UE context
+	childSA.IkeUE = ikeUe
+	// Map Exchange Message ID and Child SA data until get paired response
+	ikeUe.TemporaryExchangeMsgIDChildSAMapping[msgID] = childSA
+}
+
+func (ikeUe *N3IWFIkeUe) CompleteChildSA(msgID uint32, outboundSPI uint32,
 	chosenSecurityAssociation *ike_message.SecurityAssociation,
 ) (*ChildSecurityAssociation, error) {
-	childSecurityAssociation := new(ChildSecurityAssociation)
+	logger.IKELog.Infof("CompleteChildSA: %+v", ikeUe.TemporaryExchangeMsgIDChildSAMapping)
+	childSA, ok := ikeUe.TemporaryExchangeMsgIDChildSAMapping[msgID]
+
+	if !ok {
+		return nil, fmt.Errorf("there is not a half child SA created by the exchange with message ID %d", msgID)
+	}
+
+	// Remove mapping of exchange msg ID and child SA
+	delete(ikeUe.TemporaryExchangeMsgIDChildSAMapping, msgID)
 
 	if chosenSecurityAssociation == nil {
 		return nil, errors.New("chosenSecurityAssociation is nil")
@@ -254,45 +391,42 @@ func (ue *N3IWFUe) CreateIKEChildSecurityAssociation(
 		return nil, errors.New("no proposal")
 	}
 
-	childSecurityAssociation.SPI = binary.BigEndian.Uint32(chosenSecurityAssociation.Proposals[0].SPI)
+	childSA.OutboundSPI = outboundSPI
 
 	if len(chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm) != 0 {
-		childSecurityAssociation.EncryptionAlgorithm = chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm[0].TransformID
+		childSA.EncryptionAlgorithm = chosenSecurityAssociation.Proposals[0].EncryptionAlgorithm[0].TransformID
 	}
 	if len(chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm) != 0 {
-		childSecurityAssociation.IntegrityAlgorithm = chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm[0].TransformID
+		childSA.IntegrityAlgorithm = chosenSecurityAssociation.Proposals[0].IntegrityAlgorithm[0].TransformID
 	}
 	if len(chosenSecurityAssociation.Proposals[0].ExtendedSequenceNumbers) != 0 {
 		if chosenSecurityAssociation.Proposals[0].ExtendedSequenceNumbers[0].TransformID == 0 {
-			childSecurityAssociation.ESN = false
+			childSA.ESN = false
 		} else {
-			childSecurityAssociation.ESN = true
+			childSA.ESN = true
 		}
 	}
 
-	// Link UE context
-	childSecurityAssociation.ThisUE = ue
-	// Record to N3IWF context
-	n3iwfContext.ChildSA.Store(childSecurityAssociation.SPI, childSecurityAssociation)
+	// Record to UE context with inbound SPI as key
+	ikeUe.N3IWFChildSecurityAssociation[childSA.InboundSPI] = childSA
+	// Record to N3IWF context with inbound SPI as key
+	n3iwfContext.ChildSA.Store(childSA.InboundSPI, childSA)
 
-	ue.N3IWFChildSecurityAssociation = childSecurityAssociation
-
-	return childSecurityAssociation, nil
+	return childSA, nil
 }
 
-func (ue *N3IWFUe) AttachAMF(sctpAddr string) bool {
+func (ranUe *N3IWFRanUe) AttachAMF(sctpAddr string) bool {
 	if amf, ok := n3iwfContext.AMFPoolLoad(sctpAddr); ok {
-		amf.N3iwfUeList[ue.RanUeNgapId] = ue
-		ue.AMF = amf
+		amf.N3iwfRanUeList[ranUe.RanUeNgapId] = ranUe
+		ranUe.AMF = amf
 		return true
-	} else {
-		return false
 	}
+	return false
 }
 
-func (ue *N3IWFUe) DetachAMF() {
-	if ue.AMF == nil {
+func (ranUe *N3IWFRanUe) DetachAMF() {
+	if ranUe.AMF == nil {
 		return
 	}
-	delete(ue.AMF.N3iwfUeList, ue.RanUeNgapId)
+	delete(ranUe.AMF.N3iwfRanUeList, ranUe.RanUeNgapId)
 }
