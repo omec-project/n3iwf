@@ -12,9 +12,7 @@ import (
 	"github.com/omec-project/util/logger"
 )
 
-const (
-	N3IWF_EXPECTED_CONFIG_VERSION = "1.0.0"
-)
+const N3IWF_EXPECTED_CONFIG_VERSION = "1.0.0"
 
 type Config struct {
 	Info          *Info          `yaml:"info"`

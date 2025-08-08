@@ -197,9 +197,7 @@ func NewSendPDUSessionResourceReleaseResEvt(ranUeNgapId int64) *SendPDUSessionRe
 }
 
 // Ngap context
-const (
-	CxtTempPDUSessionSetupData int64 = iota
-)
+const CxtTempPDUSessionSetupData int64 = iota
 
 type GetNGAPContextEvt struct {
 	RanUeNgapId       int64

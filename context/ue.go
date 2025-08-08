@@ -17,9 +17,7 @@ import (
 	gtpv1 "github.com/wmnsk/go-gtp/gtpv1"
 )
 
-const (
-	AmfUeNgapIdUnspecified int64 = 0xffffffffff
-)
+const AmfUeNgapIdUnspecified int64 = 0xffffffffff
 
 type N3IWFIkeUe struct {
 	/* UE identity */
