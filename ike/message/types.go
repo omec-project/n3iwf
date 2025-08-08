@@ -61,9 +61,7 @@ const (
 )
 
 // used for SecurityAssociation-Proposal-Transform AttributeType
-const (
-	AttributeTypeKeyLength = 14
-)
+const AttributeTypeKeyLength = 14
 
 // used for SecurityAssociation-Proposal-Transform TransformID
 const (
