@@ -6,135 +6,119 @@
 package handler
 
 import (
-	"encoding/binary"
+	"fmt"
+	"math"
 	"net"
-	"time"
 
 	"github.com/omec-project/n3iwf/context"
-	"github.com/omec-project/n3iwf/factory"
-	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/ike/security"
 	"github.com/omec-project/n3iwf/logger"
-	"github.com/omec-project/n3iwf/util"
 )
 
-func SendIKEMessageToUE(udpConn *net.UDPConn, srcAddr, dstAddr *net.UDPAddr, message *ike_message.IKEMessage) {
-	logger.IKELog.Debugln("send IKE message to UE")
-	logger.IKELog.Debugln("encoding...")
-	pkt, err := message.Encode()
+func SendIKEMessageToUE(udpConn *net.UDPConn, srcAddr, dstAddr *net.UDPAddr, ikeMsg *message.IKEMessage, ikeSAKey *security.IKESAKey) error {
+	logger.IKELog.Debugln("send IKE ikeMsg to UE")
+	logger.IKELog.Debugln("encoding")
+
+	pkt, err := EncodeEncrypt(ikeMsg, ikeSAKey, message.Role_Responder)
 	if err != nil {
-		logger.IKELog.Errorln(err)
-		return
-	}
-	// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
-	// should prepend a 4 bytes zero
-	if srcAddr.Port == 4500 {
-		prependZero := make([]byte, 4)
-		pkt = append(prependZero, pkt...)
+		return fmt.Errorf("SendIKEMessageToUE: %w", err)
 	}
 
-	logger.IKELog.Debugln("sending...")
+	// RFC 7296 section 3.1: prepend 4 zero bytes for UDP port 4500
+	if srcAddr.Port == 4500 {
+		pkt = append(make([]byte, 4), pkt...)
+	}
+
+	logger.IKELog.Debugln("sending")
 	n, err := udpConn.WriteToUDP(pkt, dstAddr)
 	if err != nil {
-		logger.IKELog.Error(err)
-		return
+		return fmt.Errorf("SendIKEMessageToUE: %w", err)
 	}
 	if n != len(pkt) {
-		logger.IKELog.Errorf("not all of the data is sent. Total length: %d. Sent: %d.", len(pkt), n)
-		return
+		return fmt.Errorf("not all of the data is sent. Total length: %d. Sent: %d", len(pkt), n)
 	}
+	return nil
 }
 
+// SendUEInformationExchange builds and sends an IKE informational ikeMsg to UE
 func SendUEInformationExchange(
-	ikeUe *context.N3IWFIkeUe, payload ike_message.IKEPayloadContainer,
+	ikeSA *context.IKESecurityAssociation,
+	ikeSAKey *security.IKESAKey,
+	payload *message.IKEPayloadContainer,
+	initiator, response bool,
+	messageID uint32,
+	conn *net.UDPConn,
+	ueAddr, n3iwfAddr *net.UDPAddr,
 ) {
-	ikeSecurityAssociation := ikeUe.N3IWFIKESecurityAssociation
-	responseIKEMessage := new(ike_message.IKEMessage)
-
-	// Build IKE message
-	responseIKEMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI,
-		ikeSecurityAssociation.LocalSPI, ike_message.INFORMATIONAL, 0,
-		ikeSecurityAssociation.ResponderMessageID)
-	if payload != nil { // This message isn't a DPD message
-		if err := EncryptProcedure(ikeSecurityAssociation, payload, responseIKEMessage); err != nil {
-			logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-			return
-		}
+	msg := message.NewMessage(
+		ikeSA.RemoteSPI, ikeSA.LocalSPI,
+		message.INFORMATIONAL, response, initiator, messageID, nil,
+	)
+	if payload != nil && len(*payload) > 0 {
+		msg.Payloads = append(msg.Payloads, *payload...)
 	}
-	SendIKEMessageToUE(ikeUe.IKEConnection.Conn, ikeUe.IKEConnection.N3IWFAddr,
-		ikeUe.IKEConnection.UEAddr, responseIKEMessage)
+	if err := SendIKEMessageToUE(conn, n3iwfAddr, ueAddr, msg, ikeSAKey); err != nil {
+		logger.IKELog.Errorf("SendUEInformationExchange err: %+v", err)
+	}
 }
 
-func SendIKEDeleteRequest(localSPI uint64) {
-	ikeUe, ok := context.N3IWFSelf().IkeUePoolLoad(localSPI)
+// SendIKEDeleteRequest sends an IKE SA delete request to UE
+func SendIKEDeleteRequest(n3iwfCtx *context.N3IWFContext, localSPI uint64) {
+	ikeUe, ok := n3iwfCtx.IkeUePoolLoad(localSPI)
 	if !ok {
 		logger.IKELog.Errorf("cannot get IkeUE from SPI: %+v", localSPI)
 		return
 	}
-
-	var deletePayload ike_message.IKEPayloadContainer
-	deletePayload.BuildDeletePayload(ike_message.TypeIKE, 0, 0, nil)
-	SendUEInformationExchange(ikeUe, deletePayload)
+	var deletePayload message.IKEPayloadContainer
+	deletePayload.BuildDeletePayload(message.TypeIKE, 0, 0, nil)
+	SendUEInformationExchange(
+		ikeUe.N3IWFIKESecurityAssociation,
+		ikeUe.N3IWFIKESecurityAssociation.IKESAKey,
+		&deletePayload,
+		false, false,
+		ikeUe.N3IWFIKESecurityAssociation.ResponderMessageID,
+		ikeUe.IKEConnection.Conn,
+		ikeUe.IKEConnection.UEAddr,
+		ikeUe.IKEConnection.N3IWFAddr,
+	)
 }
 
-func SendChildSADeleteRequest(ikeUe *context.N3IWFIkeUe, relaseList []int64) {
-	var deleteSPIs []byte
+// SendChildSADeleteRequest deletes Child SAs for given release list and sends delete request
+func SendChildSADeleteRequest(ikeUe *context.N3IWFIkeUe, releaseList []int64) {
+	var deleteSPIs []uint32
 	spiLen := uint16(0)
-	for _, releaseItem := range relaseList {
+	for _, releaseID := range releaseList {
 		for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
-			if childSA.PDUSessionIds[0] == releaseItem {
-				spiByte := make([]byte, 4)
-				binary.BigEndian.PutUint32(spiByte, uint32(childSA.XfrmStateList[0].Spi))
-				deleteSPIs = append(deleteSPIs, spiByte...)
-				spiLen += 1
-				if err := ikeUe.DeleteChildSA(childSA); err != nil {
-					logger.IKELog.Errorf("delete Child SA error: %+v", err)
-				}
+			if len(childSA.PDUSessionIds) == 0 || childSA.PDUSessionIds[0] != releaseID {
+				continue
+			}
+			spi := childSA.XfrmStateList[0].Spi
+			if spi < 0 || spi > math.MaxUint32 {
+				logger.IKELog.Errorf("SendChildSADeleteRequest spi out of uint32 range: %d", spi)
+				continue
+			}
+			deleteSPIs = append(deleteSPIs, uint32(spi))
+			spiLen++
+			if err := ikeUe.DeleteChildSA(childSA); err != nil {
+				logger.IKELog.Errorf("delete Child SA error: %+v", err)
 			}
 		}
 	}
-
-	var deletePayload ike_message.IKEPayloadContainer
-	deletePayload.BuildDeletePayload(ike_message.TypeESP, 4, spiLen, deleteSPIs)
-	SendUEInformationExchange(ikeUe, deletePayload)
-}
-
-func StartDPD(ikeUe *context.N3IWFIkeUe) {
-	defer util.RecoverWithLog(logger.IKELog)
-
-	ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh = make(chan struct{})
-
-	n3iwfSelf := context.N3IWFSelf()
-
-	liveness := factory.N3iwfConfig.Configuration.LivenessCheck
-	if liveness.Enable {
-		ikeUe.N3IWFIKESecurityAssociation.IsUseDPD = true
-		timer := time.NewTicker(liveness.TransFreq)
-		for {
-			select {
-			case <-ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh:
-				close(ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh)
-				timer.Stop()
-				return
-			case <-timer.C:
-				SendUEInformationExchange(ikeUe, nil)
-				var DPDReqRetransTime time.Duration = 2 * time.Second
-				ikeUe.N3IWFIKESecurityAssociation.DPDReqRetransTimer = context.NewDPDPeriodicTimer(DPDReqRetransTime,
-					liveness.MaxRetryTimes, ikeUe.N3IWFIKESecurityAssociation, func() {
-						logger.IKELog.Errorln("UE is down")
-						ranNgapId, ok := n3iwfSelf.NgapIdLoad(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
-						if !ok {
-							logger.IKELog.Infof("cannot find ranNgapId form SPI: %+v", ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
-							return
-						}
-
-						n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendUEContextReleaseRequestEvt(
-							ranNgapId, context.ErrRadioConnWithUeLost,
-						)
-
-						ikeUe.N3IWFIKESecurityAssociation.DPDReqRetransTimer = nil
-						timer.Stop()
-					})
-			}
-		}
+	if spiLen == 0 {
+		logger.IKELog.Debugln("No Child SAs to delete for given release list")
+		return
 	}
+	var deletePayload message.IKEPayloadContainer
+	deletePayload.BuildDeletePayload(message.TypeESP, 4, spiLen, deleteSPIs)
+	SendUEInformationExchange(
+		ikeUe.N3IWFIKESecurityAssociation,
+		ikeUe.N3IWFIKESecurityAssociation.IKESAKey,
+		&deletePayload,
+		false, false,
+		ikeUe.N3IWFIKESecurityAssociation.ResponderMessageID,
+		ikeUe.IKEConnection.Conn,
+		ikeUe.IKEConnection.UEAddr,
+		ikeUe.IKEConnection.N3IWFAddr,
+	)
 }

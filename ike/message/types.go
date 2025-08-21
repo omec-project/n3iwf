@@ -5,12 +5,13 @@
 
 package message
 
-// IKE types
+// IKEPayloadType represents the type of IKE payload.
 type IKEPayloadType uint8
 
+// IKE Payload Types
 const (
-	NoNext = 0
-	TypeSA = iota + 32
+	NoNext IKEPayloadType = 0
+	TypeSA IKEPayloadType = iota + 32
 	TypeKE
 	TypeIDi
 	TypeIDr
@@ -28,16 +29,18 @@ const (
 	TypeEAP
 )
 
-// EAP types
+// EAPType represents the type of EAP message.
 type EAPType uint8
 
+// EAP Types
 const (
-	EAPTypeIdentity = iota + 1
+	EAPTypeIdentity EAPType = iota + 1
 	EAPTypeNotification
 	EAPTypeNak
-	EAPTypeExpanded = 254
+	EAPTypeExpanded EAPType = 254
 )
 
+// EAP Codes
 const (
 	EAPCodeRequest = iota + 1
 	EAPCodeResponse
@@ -45,7 +48,7 @@ const (
 	EAPCodeFailure
 )
 
-// used for SecurityAssociation-Proposal-Transform TransformType
+// Security Association Proposal Transform Types
 const (
 	TypeEncryptionAlgorithm = iota + 1
 	TypePseudorandomFunction
@@ -54,16 +57,16 @@ const (
 	TypeExtendedSequenceNumbers
 )
 
-// used for SecurityAssociation-Proposal-Transform AttributeFormat
+// Security Association Proposal Transform Attribute Formats
 const (
 	AttributeFormatUseTLV = iota
 	AttributeFormatUseTV
 )
 
-// used for SecurityAssociation-Proposal-Transform AttributeType
+// Security Association Proposal Transform Attribute Types
 const AttributeTypeKeyLength = 14
 
-// used for SecurityAssociation-Proposal-Transform TransformID
+// Security Association Proposal Transform IDs
 const (
 	ENCR_DES_IV64 = 1
 	ENCR_DES      = 2
@@ -79,12 +82,15 @@ const (
 	ENCR_AES_CTR  = 13
 )
 
+// Pseudorandom Function Types
 const (
 	PRF_HMAC_MD5 = iota + 1
 	PRF_HMAC_SHA1
 	PRF_HMAC_TIGER
+	PRF_HMAC_SHA2_256 = 5
 )
 
+// Authentication Algorithm Types
 const (
 	AUTH_NONE = iota
 	AUTH_HMAC_MD5_96
@@ -92,8 +98,10 @@ const (
 	AUTH_DES_MAC
 	AUTH_KPDK_MD5
 	AUTH_AES_XCBC_96
+	AUTH_HMAC_SHA2_256_128 = 12
 )
 
+// Diffie-Hellman Group Types
 const (
 	DH_NONE          = 0
 	DH_768_BIT_MODP  = 1
@@ -106,18 +114,19 @@ const (
 	DH_8192_BIT_MODP
 )
 
+// Extended Sequence Numbers
 const (
-	ESN_NO = iota
-	ESN_NEED
+	ESN_DISABLE = iota
+	ESN_ENABLE
 )
 
-// used for TrafficSelector-Individual Traffic Selector TSType
+// Traffic Selector Types
 const (
 	TS_IPV4_ADDR_RANGE = 7
 	TS_IPV6_ADDR_RANGE = 8
 )
 
-// Exchange Type
+// Exchange Types
 const (
 	IKE_SA_INIT = iota + 34
 	IKE_AUTH
@@ -125,7 +134,7 @@ const (
 	INFORMATIONAL
 )
 
-// Notify message types
+// Notify Message Types
 const (
 	UNSUPPORTED_CRITICAL_PAYLOAD  = 1
 	INVALID_IKE_SPI               = 4
@@ -142,6 +151,8 @@ const (
 	FAILED_CP_REQUIRED            = 37
 	TS_UNACCEPTABLE               = 38
 	INVALID_SELECTORS             = 39
+	UNACCEPTABLE_ADDRESSES        = 40
+	UNEXPECTED_NAT_DETECTED       = 41
 	TEMPORARY_FAILURE             = 43
 	CHILD_SA_NOT_FOUND            = 44
 	INITIAL_CONTACT               = 16384
@@ -156,9 +167,16 @@ const (
 	REKEY_SA                      = 16393
 	ESP_TFC_PADDING_NOT_SUPPORTED = 16394
 	NON_FIRST_FRAGMENTS_ALSO      = 16395
+	MOBIKE_SUPPORTED              = 16396
+	ADDITIONAL_IP4_ADDRESS        = 16397
+	ADDITIONAL_IP6_ADDRESS        = 16398
+	NO_ADDITIONAL_ADDRESSES       = 16399
+	UPDATE_SA_ADDRESSES           = 16400
+	COOKIE2                       = 16401
+	NO_NATS_ALLOWED               = 16402
 )
 
-// Protocol ID
+// Protocol IDs
 const (
 	TypeNone = iota
 	TypeIKE
@@ -173,7 +191,7 @@ const (
 	InitiatorBitCheck = 0x08
 )
 
-// Certificate encoding
+// Certificate Encoding Types
 const (
 	PKCS7WrappedX509Certificate = 1
 	PGPCertificate              = 2
@@ -206,7 +224,7 @@ const (
 	DSSDigitalSignature
 )
 
-// Configuration types
+// Configuration Types
 const (
 	CFG_REQUEST = 1
 	CFG_REPLY   = 2
@@ -214,7 +232,7 @@ const (
 	CFG_ACK     = 4
 )
 
-// Configuration attribute types
+// Configuration Attribute Types
 const (
 	INTERNAL_IP4_ADDRESS = 1
 	INTERNAL_IP4_NETMASK = 2
@@ -230,7 +248,7 @@ const (
 	INTERNAL_IP6_SUBNET  = 15
 )
 
-// IP protocols ID, used in individual traffic selector
+// IP Protocol IDs (used in individual traffic selector)
 const (
 	IPProtocolAll  = 0
 	IPProtocolICMP = 1
@@ -239,21 +257,20 @@ const (
 	IPProtocolGRE  = 47
 )
 
-// Types for EAP-5G
-// Used in IKE EAP expanded for vendor ID
-const VendorID3GPP = 10415
+// EAP-5G Vendor and Type
+const (
+	VendorID3GPP    = 10415
+	VendorTypeEAP5G = 3
+)
 
-// Used in IKE EAP expanded for vendor data
-const VendorTypeEAP5G = 3
-
-// Used in EAP-5G for message ID
+// EAP-5G Message IDs
 const (
 	EAP5GType5GStart = 1
 	EAP5GType5GNAS   = 2
 	EAP5GType5GStop  = 4
 )
 
-// Used in AN-Parameter field for IE types
+// AN-Parameter IE Types
 const (
 	ANParametersTypeGUAMI              = 1
 	ANParametersTypeSelectedPLMNID     = 2
@@ -261,28 +278,27 @@ const (
 	ANParametersTypeEstablishmentCause = 4
 )
 
-// Used for checking if AN-Parameter length field is legal
+// AN-Parameter Lengths
 const (
 	ANParametersLenGUAMI    = 6
 	ANParametersLenPLMNID   = 3
 	ANParametersLenEstCause = 1
 )
 
-// Used in IE Establishment Cause field for cause types
+// Establishment Cause Types
 const (
 	EstablishmentCauseEmergency          = 0
 	EstablishmentCauseHighPriorityAccess = 1
-	EstablishmentCauseMO_Signalling      = 3
+	EstablishmentCauseMO_Signaling       = 3
 	EstablishmentCauseMO_Data            = 4
 	EstablishmentCauseMPS_PriorityAccess = 8
 	EstablishmentCauseMCS_PriorityAccess = 9
 )
 
-// Spare
+// EAP-5G Spare Value
 const EAP5GSpareValue = 0
 
-// 3GPP specified IKE Notify
-// 3GPP specified IKE Notify Message Types
+// 3GPP-specified IKE Notify Message Types
 const (
 	Vendor3GPPNotifyType5G_QOS_INFO     uint16 = 55501
 	Vendor3GPPNotifyTypeNAS_IP4_ADDRESS uint16 = 55502
@@ -290,8 +306,16 @@ const (
 	Vendor3GPPNotifyTypeNAS_TCP_PORT    uint16 = 55506
 )
 
-// Used in NotifyType5G_QOS_INFO
+// NotifyType5G_QOS_INFO Bits
 const (
-	NotifyType5G_QOS_INFOBitDSCPICheck uint8 = 1
-	NotifyType5G_QOS_INFOBitDCSICheck  uint8 = 1 << 1
+	NotifyType5G_QOS_INFOBitDSCPICheck uint8 = 1 << iota
+	NotifyType5G_QOS_INFOBitDCSICheck
+)
+
+// IKE Role
+type Role bool
+
+const (
+	Role_Initiator Role = true
+	Role_Responder Role = false
 )

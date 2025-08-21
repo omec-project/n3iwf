@@ -16,14 +16,14 @@ import (
 	"time"
 
 	aperLogger "github.com/omec-project/aper/logger"
-	n3iwf_context "github.com/omec-project/n3iwf/context"
+	n3iwfContext "github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/factory"
-	ike_service "github.com/omec-project/n3iwf/ike/service"
+	ikeService "github.com/omec-project/n3iwf/ike/service"
 	"github.com/omec-project/n3iwf/ike/xfrm"
 	"github.com/omec-project/n3iwf/logger"
-	ngap_service "github.com/omec-project/n3iwf/ngap/service"
-	nwucp_service "github.com/omec-project/n3iwf/nwucp/service"
-	nwuup_service "github.com/omec-project/n3iwf/nwuup/service"
+	ngapService "github.com/omec-project/n3iwf/ngap/service"
+	nwucpService "github.com/omec-project/n3iwf/nwucp/service"
+	nwuupService "github.com/omec-project/n3iwf/nwuup/service"
 	"github.com/omec-project/n3iwf/util"
 	ngapLogger "github.com/omec-project/ngap/logger"
 	utilLogger "github.com/omec-project/util/logger"
@@ -33,14 +33,13 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// N3IWF main struct
 type N3IWF struct{}
 
-type (
-	// Config information.
-	Config struct {
-		cfg string
-	}
-)
+// Config holds configuration file path
+type Config struct {
+	cfg string
+}
 
 var config Config
 
@@ -52,105 +51,64 @@ var n3iwfCLi = []cli.Flag{
 	},
 }
 
-func init() {
-}
-
 func (*N3IWF) GetCliCmd() (flags []cli.Flag) {
 	return n3iwfCLi
 }
 
+// Initialize loads config and sets log levels
 func (n3iwf *N3IWF) Initialize(c *cli.Command) error {
-	config = Config{
-		cfg: c.String("cfg"),
-	}
-
+	config = Config{cfg: c.String("cfg")}
 	absPath, err := filepath.Abs(config.cfg)
 	if err != nil {
 		logger.CfgLog.Errorln(err)
 		return err
 	}
-
 	if err := factory.InitConfigFactory(absPath); err != nil {
 		return err
 	}
-
-	n3iwf.setLogLevel()
-
 	if err := factory.CheckConfigVersion(); err != nil {
 		return err
 	}
-
+	n3iwf.setLogLevel()
 	return nil
 }
 
+// setLogLevel configures log levels for all modules
 func (n3iwf *N3IWF) setLogLevel() {
-	if factory.N3iwfConfig.Logger == nil {
+	cfgLogger := factory.N3iwfConfig.Logger
+	if cfgLogger == nil {
 		logger.InitLog.Warnln("N3IWF config without log level setting")
 		return
 	}
+	setModuleLogLevel(cfgLogger.N3IWF, logger.InitLog, logger.SetLogLevel, "N3IWF")
+	setModuleLogLevel(cfgLogger.NGAP, ngapLogger.NgapLog, ngapLogger.SetLogLevel, "NGAP")
+	setModuleLogLevel(cfgLogger.Aper, aperLogger.AperLog, aperLogger.SetLogLevel, "Aper")
+	setModuleLogLevel(cfgLogger.Util, utilLogger.UtilLog, utilLogger.SetLogLevel, "Util (drsm, fsm, etc.)")
+}
 
-	if factory.N3iwfConfig.Logger.N3IWF != nil {
-		if factory.N3iwfConfig.Logger.N3IWF.DebugLevel != "" {
-			if level, err := zapcore.ParseLevel(factory.N3iwfConfig.Logger.N3IWF.DebugLevel); err != nil {
-				logger.InitLog.Warnf("N3IWF Log level [%s] is invalid, set to [info] level",
-					factory.N3iwfConfig.Logger.N3IWF.DebugLevel)
-				logger.SetLogLevel(zap.InfoLevel)
-			} else {
-				logger.InitLog.Infof("N3IWF Log level is set to [%s] level", level)
-				logger.SetLogLevel(level)
-			}
-		} else {
-			logger.InitLog.Infoln("N3IWF Log level is default set to [info] level")
-			logger.SetLogLevel(zap.InfoLevel)
-		}
+// setModuleLogLevel is a helper to reduce repetition in log level setup
+func setModuleLogLevel(moduleCfg *utilLogger.LogSetting, logObj *zap.SugaredLogger, setLevel func(zapcore.Level), moduleName string) {
+	if moduleCfg == nil {
+		logObj.Warnf("%s Log level not set. Default set to [info] level", moduleName)
+		setLevel(zap.InfoLevel)
+		return
 	}
-
-	if factory.N3iwfConfig.Logger.NGAP != nil {
-		if factory.N3iwfConfig.Logger.NGAP.DebugLevel != "" {
-			if level, err := zapcore.ParseLevel(factory.N3iwfConfig.Logger.NGAP.DebugLevel); err != nil {
-				ngapLogger.NgapLog.Warnf("NGAP Log level [%s] is invalid, set to [info] level",
-					factory.N3iwfConfig.Logger.NGAP.DebugLevel)
-				ngapLogger.SetLogLevel(zap.InfoLevel)
-			} else {
-				ngapLogger.SetLogLevel(level)
-			}
+	if moduleCfg.DebugLevel != "" {
+		level, err := zapcore.ParseLevel(moduleCfg.DebugLevel)
+		if err != nil {
+			logObj.Warnf("%s Log level [%s] is invalid, set to [info] level", moduleName, moduleCfg.DebugLevel)
+			setLevel(zap.InfoLevel)
 		} else {
-			ngapLogger.NgapLog.Warnln("NGAP Log level not set. Default set to [info] level")
-			ngapLogger.SetLogLevel(zap.InfoLevel)
+			logObj.Infof("%s Log level is set to [%s] level", moduleName, level)
+			setLevel(level)
 		}
-	}
-
-	if factory.N3iwfConfig.Logger.Aper != nil {
-		if factory.N3iwfConfig.Logger.Aper.DebugLevel != "" {
-			if level, err := zapcore.ParseLevel(factory.N3iwfConfig.Logger.Aper.DebugLevel); err != nil {
-				aperLogger.AperLog.Warnf("Aper Log level [%s] is invalid, set to [info] level",
-					factory.N3iwfConfig.Logger.Aper.DebugLevel)
-				aperLogger.SetLogLevel(zap.InfoLevel)
-			} else {
-				aperLogger.SetLogLevel(level)
-			}
-		} else {
-			aperLogger.AperLog.Warnln("Aper Log level not set. Default set to [info] level")
-			aperLogger.SetLogLevel(zap.InfoLevel)
-		}
-	}
-
-	if factory.N3iwfConfig.Logger.Util != nil {
-		if factory.N3iwfConfig.Logger.Util.DebugLevel != "" {
-			if level, err := zapcore.ParseLevel(factory.N3iwfConfig.Logger.Util.DebugLevel); err != nil {
-				utilLogger.UtilLog.Warnf("Util (drsm, fsm, etc.) Log level [%s] is invalid, set to [info] level",
-					factory.N3iwfConfig.Logger.Util.DebugLevel)
-				utilLogger.SetLogLevel(zap.InfoLevel)
-			} else {
-				utilLogger.SetLogLevel(level)
-			}
-		} else {
-			utilLogger.UtilLog.Warnln("Util (drsm, fsm, etc.) Log level not set. Default set to [info] level")
-			utilLogger.SetLogLevel(zap.InfoLevel)
-		}
+	} else {
+		logObj.Warnf("%s Log level not set. Default set to [info] level", moduleName)
+		setLevel(zap.InfoLevel)
 	}
 }
 
+// FilterCli returns CLI args for flags
 func (n3iwf *N3IWF) FilterCli(c *cli.Command) (args []string) {
 	for _, flag := range n3iwf.GetCliCmd() {
 		name := flag.Names()[0]
@@ -158,58 +116,44 @@ func (n3iwf *N3IWF) FilterCli(c *cli.Command) (args []string) {
 		if value == "" {
 			continue
 		}
-
 		args = append(args, "--"+name, value)
 	}
 	return args
 }
 
+// Start launches all services and handles graceful shutdown
 func (n3iwf *N3IWF) Start() {
 	logger.InitLog.Infoln("server started")
-
 	var cancel context.CancelFunc
-	n3iwfContext := n3iwf_context.N3IWFSelf()
-	n3iwfContext.Ctx, cancel = context.WithCancel(context.Background())
+	n3iwfCtx := n3iwfContext.N3IWFSelf()
+	n3iwfCtx.Ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
-
 	if !util.InitN3IWFContext() {
 		logger.InitLog.Errorln("initializing context failed")
 		return
 	}
-
-	if err := n3iwf.InitDefaultXfrmInterface(n3iwfContext); err != nil {
+	if err := n3iwf.InitDefaultXfrmInterface(n3iwfCtx); err != nil {
 		logger.InitLog.Errorf("initiating XFRM interface for control plane failed: %+v", err)
 		return
 	}
-
-	n3iwfContext.Wg.Add(1)
-	// Graceful Shutdown
-	go n3iwf.ListenShutdownEvent(n3iwfContext)
-
-	// NGAP
-	if err := ngap_service.Run(&n3iwfContext.Wg); err != nil {
+	n3iwfCtx.Wg.Add(1)
+	go n3iwf.ListenShutdownEvent(n3iwfCtx)
+	if err := ngapService.Run(n3iwfCtx, &n3iwfCtx.Wg); err != nil {
 		logger.InitLog.Errorf("start NGAP service failed: %+v", err)
 		return
 	}
 	logger.InitLog.Infoln("NGAP service running")
-
-	// Relay listeners
-	// Control plane
-	if err := nwucp_service.Run(&n3iwfContext.Wg); err != nil {
+	if err := nwucpService.Run(n3iwfCtx, &n3iwfCtx.Wg); err != nil {
 		logger.InitLog.Errorf("listen NWu control plane traffic failed: %+v", err)
 		return
 	}
 	logger.InitLog.Infoln("NAS TCP server successfully started")
-
-	// User plane
-	if err := nwuup_service.Run(&n3iwfContext.Wg); err != nil {
+	if err := nwuupService.Run(n3iwfCtx, &n3iwfCtx.Wg); err != nil {
 		logger.InitLog.Errorf("listen NWu user plane traffic failed: %+v", err)
 		return
 	}
 	logger.InitLog.Infoln("GTP service running")
-
-	// IKE
-	if err := ike_service.Run(&n3iwfContext.Wg); err != nil {
+	if err := ikeService.Run(n3iwfCtx, &n3iwfCtx.Wg); err != nil {
 		logger.InitLog.Errorf("start IKE service failed: %+v", err)
 		return
 	}
@@ -219,81 +163,64 @@ func (n3iwf *N3IWF) Start() {
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
 	<-signalChannel
-
 	cancel()
-	n3iwf.WaitRoutineStopped(n3iwfContext)
+	n3iwf.WaitRoutineStopped(n3iwfCtx)
 }
 
-func (n3iwf *N3IWF) ListenShutdownEvent(n3iwfContext *n3iwf_context.N3IWFContext) {
+// ListenShutdownEvent waits for shutdown and stops services
+func (n3iwf *N3IWF) ListenShutdownEvent(n3iwfCtx *n3iwfContext.N3IWFContext) {
 	defer util.RecoverWithLog(logger.InitLog)
-
-	<-n3iwfContext.Ctx.Done()
-	StopServiceConn(n3iwfContext)
+	<-n3iwfCtx.Ctx.Done()
+	n3iwf.stopServiceConn(n3iwfCtx)
+	n3iwf.removeIPsecInterfaces(n3iwfCtx)
 }
 
-func (n3iwf *N3IWF) WaitRoutineStopped(n3iwfContext *n3iwf_context.N3IWFContext) {
-	n3iwfContext.Wg.Wait()
-	// Waiting for negotiation with netlink for deleting interfaces
-	n3iwf.Terminate(n3iwfContext)
+// WaitRoutineStopped waits for all goroutines and terminates
+func (n3iwf *N3IWF) WaitRoutineStopped(n3iwfCtx *n3iwfContext.N3IWFContext) {
+	n3iwfCtx.Wg.Wait()
 	time.Sleep(2 * time.Second)
 	os.Exit(0)
 }
 
-func (n3iwf *N3IWF) InitDefaultXfrmInterface(n3iwfContext *n3iwf_context.N3IWFContext) error {
-	// Setup default IPsec interface for Control Plane
-	var linkIPSec netlink.Link
-	var err error
-	n3iwfIPAddr := net.ParseIP(n3iwfContext.IpSecGatewayAddress).To4()
-	n3iwfIPAddrAndSubnet := net.IPNet{IP: n3iwfIPAddr, Mask: n3iwfContext.Subnet.Mask}
-	newXfrmiName := fmt.Sprintf("%s-default", n3iwfContext.XfrmInterfaceName)
-
-	if linkIPSec, err = xfrm.SetupIPsecXfrmi(newXfrmiName, n3iwfContext.XfrmParentIfaceName,
-		n3iwfContext.XfrmInterfaceId, n3iwfIPAddrAndSubnet); err != nil {
-		logger.InitLog.Errorf("setup XFRM interface %s fail: %+v", newXfrmiName, err)
+// InitDefaultXfrmInterface sets up default IPsec interface for Control Plane
+func (n3iwf *N3IWF) InitDefaultXfrmInterface(n3iwfCtx *n3iwfContext.N3IWFContext) error {
+	ipAddr := net.ParseIP(n3iwfCtx.IpSecGatewayAddress).To4()
+	ipNet := net.IPNet{IP: ipAddr, Mask: n3iwfCtx.Subnet.Mask}
+	ifaceName := fmt.Sprintf("%s-default", n3iwfCtx.XfrmInterfaceName)
+	link, err := xfrm.SetupIPsecXfrmi(ifaceName, n3iwfCtx.XfrmParentIfaceName, n3iwfCtx.XfrmInterfaceId, ipNet)
+	if err != nil {
+		logger.InitLog.Errorf("setup XFRM interface %s fail: %+v", ifaceName, err)
 		return err
 	}
-
-	route := &netlink.Route{
-		LinkIndex: linkIPSec.Attrs().Index,
-		Dst:       n3iwfContext.Subnet,
-	}
-
+	route := &netlink.Route{LinkIndex: link.Attrs().Index, Dst: n3iwfCtx.Subnet}
 	if err := netlink.RouteAdd(route); err != nil {
 		logger.InitLog.Warnf("netlink.RouteAdd: %+v", err)
 	}
-
-	logger.InitLog.Infof("setup XFRM interface %s", newXfrmiName)
-
-	n3iwfContext.XfrmIfaces.LoadOrStore(n3iwfContext.XfrmInterfaceId, linkIPSec)
-	n3iwfContext.XfrmIfaceIdOffsetForUP = 1
-
+	logger.InitLog.Infof("setup XFRM interface %s", ifaceName)
+	n3iwfCtx.XfrmIfaces.LoadOrStore(n3iwfCtx.XfrmInterfaceId, link)
+	n3iwfCtx.XfrmIfaceIdOffsetForUP = 1
 	return nil
 }
 
-func (n3iwf *N3IWF) removeIPsecInterfaces(n3iwfContext *n3iwf_context.N3IWFContext) {
-	n3iwfContext.XfrmIfaces.Range(
-		func(key, value any) bool {
-			iface := value.(netlink.Link)
-			if err := netlink.LinkDel(iface); err != nil {
-				logger.InitLog.Errorf("delete interface %s fail: %+v", iface.Attrs().Name, err)
-			} else {
-				logger.InitLog.Infof("delete interface: %s", iface.Attrs().Name)
-			}
-			return true
-		})
-}
-
-func (n3iwf *N3IWF) Terminate(n3iwfContext *n3iwf_context.N3IWFContext) {
-	logger.InitLog.Infoln("terminating N3IWF")
+// removeIPsecInterfaces deletes all IPsec interfaces
+func (n3iwf *N3IWF) removeIPsecInterfaces(n3iwfCtx *n3iwfContext.N3IWFContext) {
 	logger.InitLog.Infoln("deleting interfaces created by N3IWF")
-	n3iwf.removeIPsecInterfaces(n3iwfContext)
-	logger.InitLog.Info("N3IWF terminated")
+	n3iwfCtx.XfrmIfaces.Range(func(key, value any) bool {
+		iface := value.(netlink.Link)
+		if err := netlink.LinkDel(iface); err != nil {
+			logger.InitLog.Errorf("delete interface %s failed: %+v", iface.Attrs().Name, err)
+		} else {
+			logger.InitLog.Infof("delete interface: %s", iface.Attrs().Name)
+		}
+		return true
+	})
 }
 
-func StopServiceConn(n3iwfContext *n3iwf_context.N3IWFContext) {
+// stopServiceConn stops all running services
+func (n3iwf *N3IWF) stopServiceConn(n3iwfCtx *n3iwfContext.N3IWFContext) {
 	logger.InitLog.Infoln("stopping service created by N3IWF")
-	ngap_service.Stop(n3iwfContext)
-	nwucp_service.Stop(n3iwfContext)
-	nwuup_service.Stop(n3iwfContext)
-	ike_service.Stop(n3iwfContext)
+	ngapService.Stop(n3iwfCtx)
+	nwucpService.Stop(n3iwfCtx)
+	nwuupService.Stop(n3iwfCtx)
+	ikeService.Stop(n3iwfCtx)
 }

@@ -13,350 +13,171 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	mathRand "math/rand"
+	"math"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"github.com/omec-project/n3iwf/context"
-	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/factory"
+	"github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/ike/security"
+	"github.com/omec-project/n3iwf/ike/security/dh"
+	"github.com/omec-project/n3iwf/ike/security/encr"
+	"github.com/omec-project/n3iwf/ike/security/integ"
+	"github.com/omec-project/n3iwf/ike/security/prf"
 	"github.com/omec-project/n3iwf/ike/xfrm"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/n3iwf/util"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
-func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message *ike_message.IKEMessage, realMessage1 []byte) {
+// Helper function to parse IKE payloads
+func parseIKEPayloads(payloads []message.IKEPayload) map[message.IKEPayloadType]any {
+	result := make(map[message.IKEPayloadType]any)
+	for _, ikePayload := range payloads {
+		typeID := ikePayload.Type()
+		switch typeID {
+		case message.TypeSA, message.TypeKE, message.TypeNiNr, message.TypeN,
+			message.TypeIDi, message.TypeCERTreq, message.TypeCERT, message.TypeTSi,
+			message.TypeTSr, message.TypeEAP, message.TypeAUTH, message.TypeCP:
+			result[typeID] = ikePayload
+		default:
+			logger.IKELog.Warnf("get IKE payload (type %d), not handled", typeID)
+		}
+	}
+	return result
+}
+
+// Helper for error response
+func sendErrorResponse(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, spiI, spiR uint64, msgType uint8, msgID uint32, notifyType uint16, key []byte) {
+	var payload message.IKEPayloadContainer
+	payload.Reset()
+	payload.BuildNotification(message.TypeNone, notifyType, nil, key)
+	msg := message.NewMessage(spiI, spiR, msgType, true, false, msgID, payload)
+	if err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, msg, nil); err != nil {
+		logger.IKELog.Errorf("sendErrorResponse: %v", err)
+	}
+}
+
+func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMsg *message.IKEMessage, realMessage1 []byte) {
 	logger.IKELog.Infoln("handle IKE_SA_INIT")
 
-	// Used to receive value from peer
-	var securityAssociation *ike_message.SecurityAssociation
-	var keyExcahge *ike_message.KeyExchange
-	var nonce *ike_message.Nonce
-	var notifications []*ike_message.Notification
-
-	n3iwfSelf := context.N3IWFSelf()
-
-	// For response or needed data
-	responseIKEMessage := new(ike_message.IKEMessage)
-	var sharedKeyData, localNonce, concatenatedNonce []byte
-	// Chosen transform from peer's proposal
-	var encryptionAlgorithmTransform, pseudorandomFunctionTransform *ike_message.Transform
-	var integrityAlgorithmTransform, diffieHellmanGroupTransform *ike_message.Transform
-	// For NAT-T
-	var ueIsBehindNAT, n3iwfIsBehindNAT bool
-
-	if message == nil {
-		logger.IKELog.Errorln("IKE Message is nil")
-		return
+	payloads := parseIKEPayloads(ikeMsg.Payloads)
+	securityAssociation, _ := payloads[message.TypeSA].(*message.SecurityAssociation)
+	keyExcahge, _ := payloads[message.TypeKE].(*message.KeyExchange)
+	nonce, _ := payloads[message.TypeNiNr].(*message.Nonce)
+	var notifications []*message.Notification
+	if n, ok := payloads[message.TypeN]; ok {
+		notifications = append(notifications, n.(*message.Notification))
 	}
 
-	// parse IKE header and setup IKE context
-	// check major version
-	majorVersion := ((message.Version & 0xf0) >> 4)
-	if majorVersion > 2 {
-		logger.IKELog.Warnln("received an IKE message with higher major version")
-		// send INFORMATIONAL type message with INVALID_MAJOR_VERSION Notify payload
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.INFORMATIONAL, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone,
-			ike_message.INVALID_MAJOR_VERSION, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	for _, ikePayload := range message.Payloads {
-		switch ikePayload.Type() {
-		case ike_message.TypeSA:
-			securityAssociation = ikePayload.(*ike_message.SecurityAssociation)
-		case ike_message.TypeKE:
-			keyExcahge = ikePayload.(*ike_message.KeyExchange)
-		case ike_message.TypeNiNr:
-			nonce = ikePayload.(*ike_message.Nonce)
-		case ike_message.TypeN:
-			notifications = append(notifications, ikePayload.(*ike_message.Notification))
-		default:
-			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in IKE_SA_INIT message, this payload will not be handled by IKE handler",
-				ikePayload.Type())
-		}
-	}
+	n3iwfCtx := context.N3IWFSelf()
+	var responseIKEPayload message.IKEPayloadContainer
+	var localNonce, concatenatedNonce []byte
+	var chooseProposal message.ProposalContainer
+	var localPublicValue []byte
+	var chosenDiffieHellmanGroup uint16
 
 	if securityAssociation == nil {
-		logger.IKELog.Errorln("the security association field is nil")
-		// TODO: send error message to UE
+		logger.IKELog.Errorln("security association field is nil")
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
 		return
 	}
-	responseSecurityAssociation := responseIKEMessage.Payloads.BuildSecurityAssociation()
-
-	for _, proposal := range securityAssociation.Proposals {
-		// We need ENCR, PRF, INTEG, DH, but not ESN
-		encryptionAlgorithmTransform = nil
-		pseudorandomFunctionTransform = nil
-		integrityAlgorithmTransform = nil
-		diffieHellmanGroupTransform = nil
-
-		if len(proposal.EncryptionAlgorithm) > 0 {
-			for _, transform := range proposal.EncryptionAlgorithm {
-				if is_supported(ike_message.TypeEncryptionAlgorithm, transform.TransformID,
-					transform.AttributePresent, transform.AttributeValue) {
-					encryptionAlgorithmTransform = transform
-					break
-				}
-			}
-			if encryptionAlgorithmTransform == nil {
-				continue
-			}
-		} else {
-			continue // mandatory
-		}
-		if len(proposal.PseudorandomFunction) > 0 {
-			for _, transform := range proposal.PseudorandomFunction {
-				if is_supported(ike_message.TypePseudorandomFunction, transform.TransformID,
-					transform.AttributePresent, transform.AttributeValue) {
-					pseudorandomFunctionTransform = transform
-					break
-				}
-			}
-			if pseudorandomFunctionTransform == nil {
-				continue
-			}
-		} else {
-			continue // mandatory
-		}
-		if len(proposal.IntegrityAlgorithm) > 0 {
-			for _, transform := range proposal.IntegrityAlgorithm {
-				if is_supported(ike_message.TypeIntegrityAlgorithm, transform.TransformID,
-					transform.AttributePresent, transform.AttributeValue) {
-					integrityAlgorithmTransform = transform
-					break
-				}
-			}
-			if integrityAlgorithmTransform == nil {
-				continue
-			}
-		} else {
-			continue // mandatory
-		}
-		if len(proposal.DiffieHellmanGroup) > 0 {
-			for _, transform := range proposal.DiffieHellmanGroup {
-				if is_supported(ike_message.TypeDiffieHellmanGroup, transform.TransformID,
-					transform.AttributePresent, transform.AttributeValue) {
-					diffieHellmanGroupTransform = transform
-					break
-				}
-			}
-			if diffieHellmanGroupTransform == nil {
-				continue
-			}
-		} else {
-			continue // mandatory
-		}
-		if len(proposal.ExtendedSequenceNumbers) > 0 {
-			continue // No ESN
-		}
-
-		// Construct chosen proposal, with ENCR, PRF, INTEG, DH, and each
-		// contains one transform expectively
-		chosenProposal := responseSecurityAssociation.Proposals.BuildProposal(
-			proposal.ProposalNumber, proposal.ProtocolID, nil)
-		chosenProposal.EncryptionAlgorithm = append(chosenProposal.EncryptionAlgorithm, encryptionAlgorithmTransform)
-		chosenProposal.PseudorandomFunction = append(chosenProposal.PseudorandomFunction, pseudorandomFunctionTransform)
-		chosenProposal.IntegrityAlgorithm = append(chosenProposal.IntegrityAlgorithm, integrityAlgorithmTransform)
-		chosenProposal.DiffieHellmanGroup = append(chosenProposal.DiffieHellmanGroup, diffieHellmanGroupTransform)
-
-		break
-	}
+	responseSecurityAssociation := responseIKEPayload.BuildSecurityAssociation()
+	chooseProposal = SelectProposal(securityAssociation.Proposals)
+	responseSecurityAssociation.Proposals = append(responseSecurityAssociation.Proposals, chooseProposal...)
 
 	if len(responseSecurityAssociation.Proposals) == 0 {
 		logger.IKELog.Warnln("no proposal chosen")
-		// Respond NO_PROPOSAL_CHOSEN to UE
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.IKE_SA_INIT, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.NO_PROPOSAL_CHOSEN, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
 		return
 	}
 
 	if keyExcahge == nil {
-		logger.IKELog.Errorln("the key exchange field is nil")
-		// TODO: send error message to UE
+		logger.IKELog.Errorln("key exchange field is nil")
 		return
 	}
-	chosenDiffieHellmanGroup := diffieHellmanGroupTransform.TransformID
+	chosenDiffieHellmanGroup = chooseProposal[0].DiffieHellmanGroup[0].TransformID
 	if chosenDiffieHellmanGroup != keyExcahge.DiffieHellmanGroup {
-		logger.IKELog.Warnln("the Diffie-Hellman group defined in key exchange payload not matches the one in chosen proposal")
-		// send INVALID_KE_PAYLOAD to UE
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.IKE_SA_INIT, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-
+		logger.IKELog.Warnln("Diffie-Hellman group mismatch")
 		notificationData := make([]byte, 2)
 		binary.BigEndian.PutUint16(notificationData, chosenDiffieHellmanGroup)
-		responseIKEMessage.Payloads.BuildNotification(
-			ike_message.TypeNone, ike_message.INVALID_KE_PAYLOAD, nil, notificationData)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.INVALID_KE_PAYLOAD, notificationData)
 		return
 	}
-
-	var localPublicValue []byte
-
-	localPublicValue, sharedKeyData = CalculateDiffieHellmanMaterials(GenerateRandomNumber(),
-		keyExcahge.KeyExchangeData, chosenDiffieHellmanGroup)
-	responseIKEMessage.Payloads.BuildKeyExchange(chosenDiffieHellmanGroup, localPublicValue)
 
 	if nonce == nil {
-		logger.IKELog.Errorln("the nonce field is nil")
-		// TODO: send error message to UE
+		logger.IKELog.Errorln("nonce field is nil")
 		return
 	}
-	localNonce = GenerateRandomNumber().Bytes()
+
+	localNonceBigInt, err := security.GenerateRandomNumber()
+	if err != nil {
+		logger.IKELog.Errorf("HandleIKESAINIT: %v", err)
+		return
+	}
+	localNonce = localNonceBigInt.Bytes()
 	concatenatedNonce = append(nonce.NonceData, localNonce...)
+	responseIKEPayload.BuildNonce(localNonce)
 
-	responseIKEMessage.Payloads.BuildNonce(localNonce)
-
-	if len(notifications) != 0 {
-		for _, notification := range notifications {
-			switch notification.NotifyMessageType {
-			case ike_message.NAT_DETECTION_SOURCE_IP:
-				logger.IKELog.Debugln("received IKE Notify: NAT_DETECTION_SOURCE_IP")
-				// Calculate local NAT_DETECTION_SOURCE_IP hash
-				// : sha1(ispi | rspi | ueip | ueport)
-				localDetectionData := make([]byte, 22)
-				binary.BigEndian.PutUint64(localDetectionData[0:8], message.InitiatorSPI)
-				binary.BigEndian.PutUint64(localDetectionData[8:16], message.ResponderSPI)
-				copy(localDetectionData[16:20], ueAddr.IP.To4())
-				binary.BigEndian.PutUint16(localDetectionData[20:22], uint16(ueAddr.Port))
-
-				sha1HashFunction := sha1.New()
-				if _, err := sha1HashFunction.Write(localDetectionData); err != nil {
-					logger.IKELog.Errorf("hash function write error: %+v", err)
-					return
-				}
-
-				if !bytes.Equal(notification.NotificationData, sha1HashFunction.Sum(nil)) {
-					ueIsBehindNAT = true
-				}
-			case ike_message.NAT_DETECTION_DESTINATION_IP:
-				logger.IKELog.Debugln("received IKE Notify: NAT_DETECTION_DESTINATION_IP")
-				// Calculate local NAT_DETECTION_SOURCE_IP hash
-				// : sha1(ispi | rspi | n3iwfip | n3iwfport)
-				localDetectionData := make([]byte, 22)
-				binary.BigEndian.PutUint64(localDetectionData[0:8], message.InitiatorSPI)
-				binary.BigEndian.PutUint64(localDetectionData[8:16], message.ResponderSPI)
-				copy(localDetectionData[16:20], n3iwfAddr.IP.To4())
-				binary.BigEndian.PutUint16(localDetectionData[20:22], uint16(n3iwfAddr.Port))
-
-				sha1HashFunction := sha1.New()
-				if _, err := sha1HashFunction.Write(localDetectionData); err != nil {
-					logger.IKELog.Errorf("hash function write error: %+v", err)
-					return
-				}
-
-				if !bytes.Equal(notification.NotificationData, sha1HashFunction.Sum(nil)) {
-					n3iwfIsBehindNAT = true
-				}
-			default:
-			}
-		}
-	}
-
-	// Create new IKE security association
-	ikeSecurityAssociation := n3iwfSelf.NewIKESecurityAssociation()
-	ikeSecurityAssociation.RemoteSPI = message.InitiatorSPI
-	ikeSecurityAssociation.InitiatorMessageID = message.MessageID
-	ikeSecurityAssociation.UEIsBehindNAT = ueIsBehindNAT
-	ikeSecurityAssociation.N3IWFIsBehindNAT = n3iwfIsBehindNAT
-
-	// Record algorithm in context
-	ikeSecurityAssociation.EncryptionAlgorithm = encryptionAlgorithmTransform
-	ikeSecurityAssociation.IntegrityAlgorithm = integrityAlgorithmTransform
-	ikeSecurityAssociation.PseudorandomFunction = pseudorandomFunctionTransform
-	ikeSecurityAssociation.DiffieHellmanGroup = diffieHellmanGroupTransform
-
-	// Record concatenated nonce
-	ikeSecurityAssociation.ConcatenatedNonce = append(ikeSecurityAssociation.ConcatenatedNonce, concatenatedNonce...)
-	// Record Diffie-Hellman shared key
-	ikeSecurityAssociation.DiffieHellmanSharedKey = append(ikeSecurityAssociation.DiffieHellmanSharedKey, sharedKeyData...)
-
-	if err := GenerateKeyForIKESA(ikeSecurityAssociation); err != nil {
-		logger.IKELog.Errorf("generate key for IKE SA failed: %+v", err)
+	ueBehindNAT, n3iwfBehindNAT, err := handleNATDetect(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, notifications, ueAddr, n3iwfAddr)
+	if err != nil {
+		logger.IKELog.Errorf("Handle IKE_SA_INIT: %v", err)
 		return
 	}
 
-	// IKE response to UE
-	responseIKEMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI,
-		ike_message.IKE_SA_INIT, ike_message.ResponseBitCheck, message.MessageID)
+	ikeSecurityAssociation := n3iwfCtx.NewIKESecurityAssociation()
+	ikeSecurityAssociation.RemoteSPI = ikeMsg.InitiatorSPI
+	ikeSecurityAssociation.InitiatorMessageID = ikeMsg.MessageID
 
-	// Calculate NAT_DETECTION_SOURCE_IP for NAT-T
-	natDetectionSourceIP := make([]byte, 22)
-	binary.BigEndian.PutUint64(natDetectionSourceIP[0:8], ikeSecurityAssociation.RemoteSPI)
-	binary.BigEndian.PutUint64(natDetectionSourceIP[8:16], ikeSecurityAssociation.LocalSPI)
-	copy(natDetectionSourceIP[16:20], n3iwfAddr.IP.To4())
-	binary.BigEndian.PutUint16(natDetectionSourceIP[20:22], uint16(n3iwfAddr.Port))
+	ikeSecurityAssociation.IKESAKey, localPublicValue, err = security.NewIKESAKey(chooseProposal[0], keyExcahge.KeyExchangeData, concatenatedNonce, ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI)
+	if err != nil {
+		logger.IKELog.Errorf("handle IKE_SA_INIT: %v", err)
+		return
+	}
 
-	// Build and append notify payload for NAT_DETECTION_SOURCE_IP
-	responseIKEMessage.Payloads.BuildNotification(
-		ike_message.TypeNone, ike_message.NAT_DETECTION_SOURCE_IP, nil, natDetectionSourceIP)
+	logger.IKELog.Debugln(ikeSecurityAssociation.String())
+	ikeSecurityAssociation.ConcatenatedNonce = append(ikeSecurityAssociation.ConcatenatedNonce, concatenatedNonce...)
+	ikeSecurityAssociation.UeBehindNAT = ueBehindNAT
+	ikeSecurityAssociation.N3iwfBehindNAT = n3iwfBehindNAT
 
-	// Calculate NAT_DETECTION_DESTINATION_IP for NAT-T
-	natDetectionDestinationIP := make([]byte, 22)
-	binary.BigEndian.PutUint64(natDetectionDestinationIP[0:8], ikeSecurityAssociation.RemoteSPI)
-	binary.BigEndian.PutUint64(natDetectionDestinationIP[8:16], ikeSecurityAssociation.LocalSPI)
-	copy(natDetectionDestinationIP[16:20], ueAddr.IP.To4())
-	binary.BigEndian.PutUint16(natDetectionDestinationIP[20:22], uint16(ueAddr.Port))
+	responseIKEPayload.BuildKeyExchange(chosenDiffieHellmanGroup, localPublicValue)
+	if err = buildNATDetectNotifPayload(ikeSecurityAssociation, &responseIKEPayload, ueAddr, n3iwfAddr); err != nil {
+		logger.IKELog.Warnf("handle IKE_SA_INIT: %v", err)
+		return
+	}
 
-	// Build and append notify payload for NAT_DETECTION_DESTINATION_IP
-	responseIKEMessage.Payloads.BuildNotification(
-		ike_message.TypeNone, ike_message.NAT_DETECTION_DESTINATION_IP, nil, natDetectionDestinationIP)
-
-	// Prepare authentication data - InitatorSignedOctet
-	// InitatorSignedOctet = RealMessage1 | NonceRData | MACedIDForI
-	// MACedIDForI is acquired in IKE_AUTH exchange
+	responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeSecurityAssociation.LocalSPI, message.IKE_SA_INIT, true, false, ikeMsg.MessageID, responseIKEPayload)
 	ikeSecurityAssociation.InitiatorSignedOctets = append(realMessage1, localNonce...)
 
-	// Prepare authentication data - ResponderSignedOctet
-	// ResponderSignedOctet = RealMessage2 | NonceIData | MACedIDForR
 	responseIKEMessageData, err := responseIKEMessage.Encode()
 	if err != nil {
-		logger.IKELog.Errorln("encoding IKE message failed: %+v", err)
+		logger.IKELog.Errorf("encoding IKE ikeMsg failed: %+v", err)
 		return
 	}
 	ikeSecurityAssociation.ResponderSignedOctets = append(responseIKEMessageData, nonce.NonceData...)
-	// MACedIDForR
-	var idPayload ike_message.IKEPayloadContainer
-	idPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.Fqdn))
+	var idPayload message.IKEPayloadContainer
+	idPayload.BuildIdentificationResponder(message.ID_FQDN, []byte(n3iwfCtx.Fqdn))
 	idPayloadData, err := idPayload.Encode()
 	if err != nil {
-		logger.IKELog.Errorln("encode IKE payload failed: %+v", err)
+		logger.IKELog.Errorf("encode IKE payload failed: %+v", err)
 		return
 	}
-	pseudorandomFunction, ok := NewPseudorandomFunction(ikeSecurityAssociation.SK_pr,
-		ikeSecurityAssociation.PseudorandomFunction.TransformID)
-	if !ok {
-		logger.IKELog.Errorln("get an unsupported pseudorandom funcion. This may imply an unsupported transform is chosen")
-		return
-	}
-	if _, err := pseudorandomFunction.Write(idPayloadData[4:]); err != nil {
+	ikeSecurityAssociation.Prf_r.Reset()
+	_, err = ikeSecurityAssociation.Prf_r.Write(idPayloadData[4:])
+	if err != nil {
 		logger.IKELog.Errorf("pseudorandom function write error: %+v", err)
 		return
 	}
-	ikeSecurityAssociation.ResponderSignedOctets = append(ikeSecurityAssociation.ResponderSignedOctets,
-		pseudorandomFunction.Sum(nil)...)
+	ikeSecurityAssociation.ResponderSignedOctets = append(ikeSecurityAssociation.ResponderSignedOctets, ikeSecurityAssociation.Prf_r.Sum(nil)...) // MACedIDForR
 
 	logger.IKELog.Debugf("local unsigned authentication data:\n%s", hex.Dump(ikeSecurityAssociation.ResponderSignedOctets))
-
-	// Send response to UE
-	SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
+	if err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage, nil); err != nil {
+		logger.IKELog.Errorf("HandleIKESAINIT(): %v", err)
+	}
 }
 
 // IKE_AUTH state
@@ -368,143 +189,83 @@ const (
 	HandleCreateChildSA
 )
 
-func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message *ike_message.IKEMessage) {
+func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
+	ikeMsg *message.IKEMessage, ikeSecurityAssociation *context.IKESecurityAssociation,
+) {
 	logger.IKELog.Debugln("handle IKE_AUTH")
 
-	var encryptedPayload *ike_message.Encrypted
-
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
+	ipsecGwAddr := n3iwfCtx.IpSecGatewayAddress
 
 	// Used for response
-	responseIKEMessage := new(ike_message.IKEMessage)
-	var responseIKEPayload ike_message.IKEPayloadContainer
-
-	if message == nil {
-		logger.IKELog.Error("IKE Message is nil")
-		return
-	}
-
-	// parse IKE header and setup IKE context
-	// check major version
-	majorVersion := ((message.Version & 0xf0) >> 4)
-	if majorVersion > 2 {
-		logger.IKELog.Warnln("received an IKE message with higher major version")
-		// send INFORMATIONAL type message with INVALID_MAJOR_VERSION Notify payload ( OUTSIDE IKE SA )
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.INFORMATIONAL, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.INVALID_MAJOR_VERSION, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	// Find corresponding IKE security association
-	localSPI := message.ResponderSPI
-	ikeSecurityAssociation, ok := n3iwfSelf.IKESALoad(localSPI)
-	if !ok {
-		logger.IKELog.Warnln("unrecognized SPI")
-		// send INFORMATIONAL type message with INVALID_IKE_SPI Notify payload ( OUTSIDE IKE SA )
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, 0, ike_message.INFORMATIONAL,
-			ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.INVALID_IKE_SPI, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	for _, ikePayload := range message.Payloads {
-		switch ikePayload.Type() {
-		case ike_message.TypeSK:
-			encryptedPayload = ikePayload.(*ike_message.Encrypted)
-		default:
-			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in IKE_AUTH message, this payload will not be handled by IKE handler",
-				ikePayload.Type())
-		}
-	}
-
-	decryptedIKEPayload, err := DecryptProcedure(ikeSecurityAssociation, message, encryptedPayload)
-	if err != nil {
-		logger.IKELog.Errorf("decrypt IKE message failed: %+v", err)
-		return
-	}
+	var responseIKEPayload message.IKEPayloadContainer
 
 	// Parse payloads
-	var initiatorID *ike_message.IdentificationInitiator
-	var certificateRequest *ike_message.CertificateRequest
-	var certificate *ike_message.Certificate
-	var securityAssociation *ike_message.SecurityAssociation
-	var trafficSelectorInitiator *ike_message.TrafficSelectorInitiator
-	var trafficSelectorResponder *ike_message.TrafficSelectorResponder
-	var eap *ike_message.EAP
-	var authentication *ike_message.Authentication
-	var configuration *ike_message.Configuration
+	var initiatorID *message.IdentificationInitiator
+	var certificateRequest *message.CertificateRequest
+	var certificate *message.Certificate
+	var securityAssociation *message.SecurityAssociation
+	var trafficSelectorInitiator *message.TrafficSelectorInitiator
+	var trafficSelectorResponder *message.TrafficSelectorResponder
+	var eap *message.EAP
+	var authentication *message.Authentication
+	var configuration *message.Configuration
+	var ok bool
 
-	for _, ikePayload := range decryptedIKEPayload {
+	for _, ikePayload := range ikeMsg.Payloads {
 		switch ikePayload.Type() {
-		case ike_message.TypeIDi:
-			initiatorID = ikePayload.(*ike_message.IdentificationInitiator)
-		case ike_message.TypeCERTreq:
-			certificateRequest = ikePayload.(*ike_message.CertificateRequest)
-		case ike_message.TypeCERT:
-			certificate = ikePayload.(*ike_message.Certificate)
-		case ike_message.TypeSA:
-			securityAssociation = ikePayload.(*ike_message.SecurityAssociation)
-		case ike_message.TypeTSi:
-			trafficSelectorInitiator = ikePayload.(*ike_message.TrafficSelectorInitiator)
-		case ike_message.TypeTSr:
-			trafficSelectorResponder = ikePayload.(*ike_message.TrafficSelectorResponder)
-		case ike_message.TypeEAP:
-			eap = ikePayload.(*ike_message.EAP)
-		case ike_message.TypeAUTH:
-			authentication = ikePayload.(*ike_message.Authentication)
-		case ike_message.TypeCP:
-			configuration = ikePayload.(*ike_message.Configuration)
+		case message.TypeIDi:
+			initiatorID = ikePayload.(*message.IdentificationInitiator)
+		case message.TypeCERTreq:
+			certificateRequest = ikePayload.(*message.CertificateRequest)
+		case message.TypeCERT:
+			certificate = ikePayload.(*message.Certificate)
+		case message.TypeSA:
+			securityAssociation = ikePayload.(*message.SecurityAssociation)
+		case message.TypeTSi:
+			trafficSelectorInitiator = ikePayload.(*message.TrafficSelectorInitiator)
+		case message.TypeTSr:
+			trafficSelectorResponder = ikePayload.(*message.TrafficSelectorResponder)
+		case message.TypeEAP:
+			eap = ikePayload.(*message.EAP)
+		case message.TypeAUTH:
+			authentication = ikePayload.(*message.Authentication)
+		case message.TypeCP:
+			configuration = ikePayload.(*message.Configuration)
 		default:
 			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in IKE_AUTH message, this payload will not be handled by IKE handler",
+				"get IKE payload (type %d) in IKE_AUTH ikeMsg, this payload will not be handled by IKE handler",
 				ikePayload.Type())
 		}
 	}
 
-	// NOTE: tune it
-	transformPseudorandomFunction := ikeSecurityAssociation.PseudorandomFunction
-	ikeSecurityAssociation.InitiatorMessageID = message.MessageID
+	ikeSecurityAssociation.InitiatorMessageID = ikeMsg.MessageID
 
 	switch ikeSecurityAssociation.State {
 	case PreSignalling:
 		if initiatorID == nil {
-			logger.IKELog.Errorln("the initiator identification field is nil")
-			// TODO: send error message to UE
+			logger.IKELog.Errorln("initiator identification field is nil")
+			// TODO: send error ikeMsg to UE
 			return
 		}
 		logger.IKELog.Debugln("encoding initiator for later IKE authentication")
 		ikeSecurityAssociation.InitiatorID = initiatorID
 
 		// Record maced identification for authentication
-		idPayload := ike_message.IKEPayloadContainer{
+		idPayload := message.IKEPayloadContainer{
 			initiatorID,
 		}
 		idPayloadData, err := idPayload.Encode()
 		if err != nil {
-			logger.IKELog.Errorf("encoding ID payload message failed: %+v", err)
+			logger.IKELog.Errorf("encoding ID payload ikeMsg failed: %+v", err)
 			return
 		}
-		pseudorandomFunction, ok := NewPseudorandomFunction(ikeSecurityAssociation.SK_pi,
-			transformPseudorandomFunction.TransformID)
-		if !ok {
-			logger.IKELog.Errorln("get an unsupported pseudorandom funcion. This may imply an unsupported transform is chosen")
+		ikeSecurityAssociation.Prf_i.Reset()
+		if _, err := ikeSecurityAssociation.Prf_i.Write(idPayloadData[4:]); err != nil {
+			logger.IKELog.Errorf("pseudorandom function write error: %v", err)
 			return
 		}
-		if _, err := pseudorandomFunction.Write(idPayloadData[4:]); err != nil {
-			logger.IKELog.Errorf("pseudorandom function write error: %+v", err)
-			return
-		}
-		ikeSecurityAssociation.InitiatorSignedOctets = append(ikeSecurityAssociation.InitiatorSignedOctets, pseudorandomFunction.Sum(nil)...)
+		ikeSecurityAssociation.InitiatorSignedOctets = append(ikeSecurityAssociation.InitiatorSignedOctets, ikeSecurityAssociation.Prf_i.Sum(nil)...)
 
 		// Certificate request and prepare coresponding certificate
 		// RFC 7296 section 3.7:
@@ -516,7 +277,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		// authorities.  This can be a chain of certificates.
 		if certificateRequest != nil {
 			logger.IKELog.Infoln("UE request N3IWF certificate")
-			if CompareRootCertificate(certificateRequest.CertificateEncoding, certificateRequest.CertificationAuthority) {
+			if security.CompareRootCertificate(n3iwfCtx.CertificateAuthority, certificateRequest.CertificateEncoding, certificateRequest.CertificationAuthority) {
 				// TODO: Complete N3IWF Certificate/Certificate Authority related procedure
 				logger.IKELog.Infoln("certificate Request sent from UE matches N3IWF CA")
 			}
@@ -528,18 +289,18 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		}
 
 		if securityAssociation == nil {
-			logger.IKELog.Errorln("the security association field is nil")
-			// TODO: send error message to UE
+			logger.IKELog.Errorln("security association field is nil")
+			// TODO: send error ikeMsg to UE
 			return
 		}
 		logger.IKELog.Debugln("parsing security association")
-		responseSecurityAssociation := new(ike_message.SecurityAssociation)
+		responseSecurityAssociation := new(message.SecurityAssociation)
 
 		for _, proposal := range securityAssociation.Proposals {
-			var encryptionAlgorithmTransform *ike_message.Transform = nil
-			var integrityAlgorithmTransform *ike_message.Transform = nil
-			var diffieHellmanGroupTransform *ike_message.Transform = nil
-			var extendedSequenceNumbersTransform *ike_message.Transform = nil
+			var encryptionAlgorithmTransform *message.Transform = nil
+			var integrityAlgorithmTransform *message.Transform = nil
+			var diffieHellmanGroupTransform *message.Transform = nil
+			var extendedSequenceNumbersTransform *message.Transform = nil
 
 			if len(proposal.SPI) != 4 {
 				continue // The SPI of ESP must be 32-bit
@@ -547,7 +308,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 
 			if len(proposal.EncryptionAlgorithm) > 0 {
 				for _, transform := range proposal.EncryptionAlgorithm {
-					if is_Kernel_Supported(ike_message.TypeEncryptionAlgorithm, transform.TransformID,
+					if isTransformKernelSupported(message.TypeEncryptionAlgorithm, transform.TransformID,
 						transform.AttributePresent, transform.AttributeValue) {
 						encryptionAlgorithmTransform = transform
 						break
@@ -564,7 +325,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			}
 			if len(proposal.IntegrityAlgorithm) > 0 {
 				for _, transform := range proposal.IntegrityAlgorithm {
-					if is_Kernel_Supported(ike_message.TypeIntegrityAlgorithm, transform.TransformID,
+					if isTransformKernelSupported(message.TypeIntegrityAlgorithm, transform.TransformID,
 						transform.AttributePresent, transform.AttributeValue) {
 						integrityAlgorithmTransform = transform
 						break
@@ -576,7 +337,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			} // Optional
 			if len(proposal.DiffieHellmanGroup) > 0 {
 				for _, transform := range proposal.DiffieHellmanGroup {
-					if is_Kernel_Supported(ike_message.TypeDiffieHellmanGroup, transform.TransformID,
+					if isTransformKernelSupported(message.TypeDiffieHellmanGroup, transform.TransformID,
 						transform.AttributePresent, transform.AttributeValue) {
 						diffieHellmanGroupTransform = transform
 						break
@@ -588,7 +349,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			} // Optional
 			if len(proposal.ExtendedSequenceNumbers) > 0 {
 				for _, transform := range proposal.ExtendedSequenceNumbers {
-					if is_Kernel_Supported(ike_message.TypeExtendedSequenceNumbers, transform.TransformID,
+					if isTransformKernelSupported(message.TypeExtendedSequenceNumbers, transform.TransformID,
 						transform.AttributePresent, transform.AttributeValue) {
 						extendedSequenceNumbersTransform = transform
 						break
@@ -619,56 +380,45 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		if len(responseSecurityAssociation.Proposals) == 0 {
 			logger.IKELog.Warnln("no proposal chosen")
 			// Respond NO_PROPOSAL_CHOSEN to UE
-			// Build IKE message
-			responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-				ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-			responseIKEMessage.Payloads.Reset()
-
-			// Build response
-			responseIKEPayload.Reset()
-
 			// Notification
-			responseIKEPayload.BuildNotification(ike_message.TypeNone, ike_message.NO_PROPOSAL_CHOSEN, nil, nil)
+			responseIKEPayload.BuildNotification(message.TypeNone, message.NO_PROPOSAL_CHOSEN, nil, nil)
 
-			if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-				logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-				return
+			responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+				message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
+
+			// Send IKE ikeMsg to UE
+			err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+				ikeSecurityAssociation.IKESAKey)
+			if err != nil {
+				logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
 			}
-
-			// Send IKE message to UE
-			SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
 			return
 		}
 
 		ikeSecurityAssociation.IKEAuthResponseSA = responseSecurityAssociation
 
 		if trafficSelectorInitiator == nil {
-			logger.IKELog.Errorln("the initiator traffic selector field is nil")
-			// TODO: send error message to UE
+			logger.IKELog.Errorln("initiator traffic selector field is nil")
+			// TODO: send error ikeMsg to UE
 			return
 		}
 		logger.IKELog.Debugln("received traffic selector initiator from UE")
 		ikeSecurityAssociation.TrafficSelectorInitiator = trafficSelectorInitiator
 
 		if trafficSelectorResponder == nil {
-			logger.IKELog.Errorln("the responder traffic selector field is nil")
-			// TODO: send error message to UE
+			logger.IKELog.Errorln("responder traffic selector field is nil")
+			// TODO: send error ikeMsg to UE
 			return
 		}
 		logger.IKELog.Debugln("received traffic selector responder from UE")
 		ikeSecurityAssociation.TrafficSelectorResponder = trafficSelectorResponder
 
-		// Build response IKE message
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-
+		responseIKEPayload.Reset()
 		// Identification
-		responseIKEPayload.BuildIdentificationResponder(ike_message.ID_FQDN, []byte(n3iwfSelf.Fqdn))
+		responseIKEPayload.BuildIdentificationResponder(message.ID_FQDN, []byte(n3iwfCtx.Fqdn))
 
 		// Certificate
-		responseIKEPayload.BuildCertificate(ike_message.X509CertificateSignature, n3iwfSelf.N3iwfCertificate)
+		responseIKEPayload.BuildCertificate(message.X509CertificateSignature, n3iwfCtx.N3iwfCertificate)
 
 		// Authentication Data
 		logger.IKELog.Debugf("local authentication data:\n%s", hex.Dump(ikeSecurityAssociation.ResponderSignedOctets))
@@ -678,17 +428,17 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			return
 		}
 
-		signedAuth, err := rsa.SignPKCS1v15(rand.Reader, n3iwfSelf.N3iwfPrivateKey, crypto.SHA1, sha1HashFunction.Sum(nil))
+		signedAuth, err := rsa.SignPKCS1v15(rand.Reader, n3iwfCtx.N3iwfPrivateKey, crypto.SHA1, sha1HashFunction.Sum(nil))
 		if err != nil {
 			logger.IKELog.Errorf("sign authentication data failed: %+v", err)
 		}
 
-		responseIKEPayload.BuildAuthentication(ike_message.RSADigitalSignature, signedAuth)
+		responseIKEPayload.BuildAuthentication(message.RSADigitalSignature, signedAuth)
 
 		// EAP expanded 5G-Start
 		var identifier uint8
 		for {
-			identifier, err = GenerateRandomUint8()
+			identifier, err = security.GenerateRandomUint8()
 			if err != nil {
 				logger.IKELog.Errorf("random number failed: %+v", err)
 				return
@@ -700,16 +450,19 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		}
 		responseIKEPayload.BuildEAP5GStart(identifier)
 
-		if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-			logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-			return
-		}
+		responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+			message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
 
 		// Shift state
 		ikeSecurityAssociation.State++
 
-		// Send IKE message to UE
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
+		// Send IKE ikeMsg to UE
+		err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+			ikeSecurityAssociation.IKESAKey)
+		if err != nil {
+			logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
+			return
+		}
 
 	case EAPSignalling:
 		// If success, N3IWF will send an UPLinkNASTransport to AMF
@@ -717,7 +470,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			logger.IKELog.Errorln("EAP is nil")
 			return
 		}
-		if eap.Code != ike_message.EAPCodeResponse {
+		if eap.Code != message.EAPCodeResponse {
 			logger.IKELog.Errorln("received an EAP payload with code other than response. Drop the payload")
 			return
 		}
@@ -727,64 +480,64 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		}
 
 		eapTypeData := eap.EAPTypeData[0]
-		var eapExpanded *ike_message.EAPExpanded
+		var eapExpanded *message.EAPExpanded
 
 		switch eapTypeData.Type() {
 		// TODO: handle
-		// case ike_message.EAPTypeIdentity:
-		// case ike_message.EAPTypeNotification:
-		// case ike_message.EAPTypeNak:
-		case ike_message.EAPTypeExpanded:
-			eapExpanded = eapTypeData.(*ike_message.EAPExpanded)
+		// case message.EAPTypeIdentity:
+		// case message.EAPTypeNotification:
+		// case message.EAPTypeNak:
+		case message.EAPTypeExpanded:
+			eapExpanded = eapTypeData.(*message.EAPExpanded)
 		default:
 			logger.IKELog.Errorf("received EAP packet with type other than EAP expanded type: %d", eapTypeData.Type())
 			return
 		}
 
-		if eapExpanded.VendorID != ike_message.VendorID3GPP {
-			logger.IKELog.Errorln("the peer sent EAP expended packet with wrong vendor ID. Drop the packet")
+		if eapExpanded.VendorID != message.VendorID3GPP {
+			logger.IKELog.Errorln("peer sent EAP expended packet with wrong vendor ID. Drop the packet")
 			return
 		}
-		if eapExpanded.VendorType != ike_message.VendorTypeEAP5G {
-			logger.IKELog.Errorln("the peer sent EAP expanded packet with wrong vendor type. Drop the packet")
+		if eapExpanded.VendorType != message.VendorTypeEAP5G {
+			logger.IKELog.Errorln("peer sent EAP expanded packet with wrong vendor type. Drop the packet")
 			return
 		}
 
 		eap5GMessageID := eapExpanded.VendorData[0]
 		logger.IKELog.Debugf("EAP5G MessageID: %+v", eap5GMessageID)
 
-		if eap5GMessageID == ike_message.EAP5GType5GStop {
+		if eap5GMessageID == message.EAP5GType5GStop {
 			// Send EAP failure
-			// Build IKE message
-			responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-				ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-			responseIKEMessage.Payloads.Reset()
+			responseIKEPayload.Reset()
 
 			// EAP
-			identifier, err := GenerateRandomUint8()
+			identifier, err := security.GenerateRandomUint8()
 			if err != nil {
 				logger.IKELog.Errorf("generate random uint8 failed: %+v", err)
 				return
 			}
 			responseIKEPayload.BuildEAPFailure(identifier)
 
-			if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-				logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-				return
-			}
+			// Build IKE ikeMsg
+			responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+				message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
 
-			// Send IKE message to UE
-			SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
+			// Send IKE ikeMsg to UE
+			err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+				ikeSecurityAssociation.IKESAKey)
+			if err != nil {
+				logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
+			}
 			return
 		}
 
 		var ranNgapId int64
-		ranNgapId, ok = n3iwfSelf.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
+		ranNgapId, ok = n3iwfCtx.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
 		if !ok {
 			ranNgapId = 0
 		}
 
-		n3iwfSelf.NgapServer.RcvEventCh <- context.NewUnmarshalEAP5GDataEvt(
+		n3iwfCtx.NgapServer.RcvEventCh <- context.NewUnmarshalEAP5GDataEvt(
 			ikeSecurityAssociation.LocalSPI,
 			eapExpanded.VendorData,
 			ikeSecurityAssociation.IkeUE != nil,
@@ -797,28 +550,20 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			UEAddr:    ueAddr,
 		}
 
-		ikeSecurityAssociation.InitiatorMessageID = message.MessageID
+		ikeSecurityAssociation.InitiatorMessageID = ikeMsg.MessageID
 
 	case PostSignalling:
 		// Load needed information
 		ikeUE := ikeSecurityAssociation.IkeUE
 
 		// Prepare pseudorandom function for calculating/verifying authentication data
-		pseudorandomFunction, ok := NewPseudorandomFunction(ikeUE.Kn3iwf, transformPseudorandomFunction.TransformID)
-		if !ok {
-			logger.IKELog.Error("get an unsupported pseudorandom funcion. This may imply an unsupported transform is chosen")
-			return
-		}
+		pseudorandomFunction := ikeSecurityAssociation.PrfInfo.Init(ikeUE.Kn3iwf)
 		if _, err := pseudorandomFunction.Write([]byte("Key Pad for IKEv2")); err != nil {
 			logger.IKELog.Errorf("pseudorandom function write error: %+v", err)
 			return
 		}
 		secret := pseudorandomFunction.Sum(nil)
-		pseudorandomFunction, ok = NewPseudorandomFunction(secret, transformPseudorandomFunction.TransformID)
-		if !ok {
-			logger.IKELog.Error("get an unsupported pseudorandom funcion. This may imply an unsupported transform is chosen")
-			return
-		}
+		pseudorandomFunction = ikeSecurityAssociation.PrfInfo.Init(secret)
 
 		if authentication != nil {
 			// Verifying remote AUTH
@@ -829,45 +574,48 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			}
 			expectedAuthenticationData := pseudorandomFunction.Sum(nil)
 
+			logger.IKELog.Debugf("Kn3iwf:\n%s", hex.Dump(ikeUE.Kn3iwf))
+			logger.IKELog.Debugf("secret:\n%s", hex.Dump(secret))
+			logger.IKELog.Debugf("InitiatorSignedOctets:\n%s", hex.Dump(ikeSecurityAssociation.InitiatorSignedOctets))
 			logger.IKELog.Debugf("expected Authentication Data: %s", hex.Dump(expectedAuthenticationData))
 			if !bytes.Equal(authentication.AuthenticationData, expectedAuthenticationData) {
 				logger.IKELog.Warnln("peer authentication failed")
 				// Inform UE the authentication has failed
-				// Build IKE message
-				responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-					ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-				responseIKEMessage.Payloads.Reset()
-				// Notification
-				responseIKEPayload.BuildNotification(ike_message.TypeNone, ike_message.AUTHENTICATION_FAILED, nil, nil)
-				if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-					logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-					return
-				}
+				responseIKEPayload.Reset()
 
-				// Send IKE message to UE
-				SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
+				// Notification
+				responseIKEPayload.BuildNotification(
+					message.TypeNone, message.AUTHENTICATION_FAILED, nil, nil)
+
+				// Build IKE ikeMsg
+				responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+					message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
+
+				// Send IKE ikeMsg to UE
+				if err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+					ikeSecurityAssociation.IKESAKey); err != nil {
+					logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
+				}
 				return
-			} else {
-				logger.IKELog.Debugln("peer authentication success")
 			}
+			logger.IKELog.Debugln("peer authentication success")
 		} else {
 			logger.IKELog.Warnln("peer authentication failed")
 			// Inform UE the authentication has failed
-			// Build IKE message
-			responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-				ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-			responseIKEMessage.Payloads.Reset()
+			responseIKEPayload.Reset()
 
 			// Notification
-			responseIKEPayload.BuildNotification(ike_message.TypeNone, ike_message.AUTHENTICATION_FAILED, nil, nil)
+			responseIKEPayload.BuildNotification(message.TypeNone, message.AUTHENTICATION_FAILED, nil, nil)
 
-			if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-				logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-				return
+			// Build IKE ikeMsg
+			responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+				message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
+
+			// Send IKE ikeMsg to UE
+			if err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+				ikeSecurityAssociation.IKESAKey); err != nil {
+				logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
 			}
-
-			// Send IKE message to UE
-			SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
 			return
 		}
 
@@ -878,10 +626,10 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		if configuration != nil {
 			logger.IKELog.Debugf("received configuration payload with type: %d", configuration.ConfigurationType)
 
-			var attribute *ike_message.IndividualConfigurationAttribute
+			var attribute *message.IndividualConfigurationAttribute
 			for _, attribute = range configuration.ConfigurationAttribute {
 				switch attribute.Type {
-				case ike_message.INTERNAL_IP4_ADDRESS:
+				case message.INTERNAL_IP4_ADDRESS:
 					addrRequest = true
 					if len(attribute.Value) != 0 {
 						logger.IKELog.Debugf("got client requested address: %d.%d.%d.%d",
@@ -895,10 +643,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			logger.IKELog.Warnln("configuration is nil. UE did not sent any configuration request")
 		}
 
-		// Build response IKE message
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.IKE_AUTH, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
+		responseIKEPayload.Reset()
 
 		// Calculate local AUTH
 		pseudorandomFunction.Reset()
@@ -909,7 +654,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 
 		// Authentication
 		responseIKEPayload.BuildAuthentication(
-			ike_message.SharedKeyMesageIntegrityCode, pseudorandomFunction.Sum(nil))
+			message.SharedKeyMesageIntegrityCode, pseudorandomFunction.Sum(nil))
 
 		// Prepare configuration payload and traffic selector payload for initiator and responder
 		var ueIPAddr, n3iwfIPAddr net.IP
@@ -918,21 +663,25 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 			return
 		}
 		// IP addresses (IPSec)
-		ueIPAddr = n3iwfSelf.NewInternalUEIPAddr(ikeUE).To4()
-		n3iwfIPAddr = net.ParseIP(n3iwfSelf.IpSecGatewayAddress).To4()
+		ueIp := n3iwfCtx.NewInternalUEIPAddr(ikeUE)
+		if ueIp == nil {
+			logger.IKELog.Errorln("UE IP is nil")
+			return
+		}
+		ueIPAddr = ueIp.To4()
+		n3iwfIPAddr = net.ParseIP(ipsecGwAddr).To4()
 
-		responseConfiguration := responseIKEPayload.BuildConfiguration(ike_message.CFG_REPLY)
-		responseConfiguration.ConfigurationAttribute.BuildConfigurationAttribute(ike_message.INTERNAL_IP4_ADDRESS, ueIPAddr)
-		responseConfiguration.ConfigurationAttribute.BuildConfigurationAttribute(
-			ike_message.INTERNAL_IP4_NETMASK, n3iwfSelf.Subnet.Mask)
+		responseConfiguration := responseIKEPayload.BuildConfiguration(message.CFG_REPLY)
+		responseConfiguration.ConfigurationAttribute.BuildConfigurationAttribute(message.INTERNAL_IP4_ADDRESS, ueIPAddr)
+		responseConfiguration.ConfigurationAttribute.BuildConfigurationAttribute(message.INTERNAL_IP4_NETMASK, n3iwfCtx.Subnet.Mask)
 
 		ikeUE.IPSecInnerIP = ueIPAddr
-		if ipsecInnerIPAddr, err := net.ResolveIPAddr("ip", ueIPAddr.String()); err != nil {
+		ipsecInnerIPAddr, err := net.ResolveIPAddr("ip", ueIPAddr.String())
+		if err != nil {
 			logger.IKELog.Errorf("resolve UE inner IP address failed: %+v", err)
 			return
-		} else {
-			ikeUE.IPSecInnerIPAddr = ipsecInnerIPAddr
 		}
+		ikeUE.IPSecInnerIPAddr = ipsecInnerIPAddr
 		logger.IKELog.Debugf("ueIPAddr: %+v", ueIPAddr)
 
 		// Security Association
@@ -941,10 +690,10 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		// Traffic Selectors initiator/responder
 		responseTrafficSelectorInitiator := responseIKEPayload.BuildTrafficSelectorInitiator()
 		responseTrafficSelectorInitiator.TrafficSelectors.BuildIndividualTrafficSelector(
-			ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll, 0, 65535, ueIPAddr.To4(), ueIPAddr.To4())
+			message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll, 0, 65535, ueIPAddr.To4(), ueIPAddr.To4())
 		responseTrafficSelectorResponder := responseIKEPayload.BuildTrafficSelectorResponder()
 		responseTrafficSelectorResponder.TrafficSelectors.BuildIndividualTrafficSelector(
-			ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll, 0, 65535, n3iwfIPAddr.To4(), n3iwfIPAddr.To4())
+			message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll, 0, 65535, n3iwfIPAddr.To4(), n3iwfIPAddr.To4())
 
 		// Record traffic selector to IKE security association
 		ikeSecurityAssociation.TrafficSelectorInitiator = responseTrafficSelectorInitiator
@@ -956,10 +705,16 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		var inboundSPI uint32
 		inboundSPIByte := make([]byte, 4)
 		for {
-			randomUint64 := GenerateRandomNumber().Uint64()
+			buf := make([]byte, 4)
+			_, err = rand.Read(buf)
+			if err != nil {
+				logger.IKELog.Errorf("handle IKE_AUTH Generate ChildSA inboundSPI: %v", err)
+				return
+			}
+			randomUint32 := binary.BigEndian.Uint32(buf)
 			// check if the inbound SPI havn't been allocated by N3IWF
-			if _, ok := n3iwfSelf.ChildSA.Load(uint32(randomUint64)); !ok {
-				inboundSPI = uint32(randomUint64)
+			if _, ok := n3iwfCtx.ChildSA.Load(randomUint32); !ok {
+				inboundSPI = randomUint32
 				break
 			}
 		}
@@ -989,39 +744,44 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		// Select TCP traffic
 		childSecurityAssociationContext.SelectedIPProtocol = unix.IPPROTO_TCP
 
-		if errGen := GenerateKeyForChildSA(ikeSecurityAssociation, childSecurityAssociationContext); errGen != nil {
-			logger.IKELog.Errorf("generate key for child SA failed: %+v", errGen)
+		if err := childSecurityAssociationContext.ChildSAKey.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
+			logger.IKELog.Errorf("generate key for child SA failed: %+v", err)
 			return
 		}
 		// NAT-T concern
-		if ikeSecurityAssociation.UEIsBehindNAT || ikeSecurityAssociation.N3IWFIsBehindNAT {
+		if ikeSecurityAssociation.UeBehindNAT || ikeSecurityAssociation.N3iwfBehindNAT {
 			childSecurityAssociationContext.EnableEncapsulate = true
 			childSecurityAssociationContext.N3IWFPort = n3iwfAddr.Port
 			childSecurityAssociationContext.NATPort = ueAddr.Port
 		}
 
 		// Notification(NAS_IP_ADDRESS)
-		responseIKEPayload.BuildNotifyNAS_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
+		responseIKEPayload.BuildNotifyNAS_IP4_ADDRESS(ipsecGwAddr)
 
 		// Notification(NSA_TCP_PORT)
-		responseIKEPayload.BuildNotifyNAS_TCP_PORT(n3iwfSelf.TcpPort)
+		responseIKEPayload.BuildNotifyNAS_TCP_PORT(n3iwfCtx.TcpPort)
 
-		if errEncrypt := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); errEncrypt != nil {
-			logger.IKELog.Errorf("encrypting IKE message failed: %+v", errEncrypt)
-			return
-		}
+		// Build IKE ikeMsg
+		responseIKEMessage := message.NewMessage(ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+			message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
 
+		childSecurityAssociationContext.LocalIsInitiator = false
 		// Apply XFRM rules
 		// IPsec for CP always use default XFRM interface
-		if err = xfrm.ApplyXFRMRule(false, n3iwfSelf.XfrmInterfaceId, childSecurityAssociationContext); err != nil {
+		if err = xfrm.ApplyXFRMRule(false, n3iwfCtx.XfrmInterfaceId, childSecurityAssociationContext); err != nil {
 			logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 			return
 		}
+		logger.IKELog.Debugln(childSecurityAssociationContext.String(n3iwfCtx.XfrmInterfaceId))
 
-		// Send IKE message to UE
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
+		// Send IKE ikeMsg to UE
+		if err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+			ikeSecurityAssociation.IKESAKey); err != nil {
+			logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
+			return
+		}
 
-		ranNgapId, ok := n3iwfSelf.NgapIdLoad(ikeUE.N3IWFIKESecurityAssociation.LocalSPI)
+		ranNgapId, ok := n3iwfCtx.NgapIdLoad(ikeUE.N3IWFIKESecurityAssociation.LocalSPI)
 		if !ok {
 			logger.IKELog.Errorf("cannot get RanNgapId from SPI: %+v", ikeUE.N3IWFIKESecurityAssociation.LocalSPI)
 			return
@@ -1030,125 +790,67 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message
 		ikeSecurityAssociation.State++
 
 		// After this, N3IWF will forward NAS with Child SA (IPSec SA)
-		n3iwfSelf.NgapServer.RcvEventCh <- context.NewStartTCPSignalNASMsgEvt(
-			ranNgapId,
-		)
+		n3iwfCtx.NgapServer.RcvEventCh <- context.NewStartTCPSignalNASMsgEvt(ranNgapId)
 
 		// Get TempPDUSessionSetupData from NGAP to setup PDU session if needed
-		n3iwfSelf.NgapServer.RcvEventCh <- context.NewGetNGAPContextEvt(
-			ranNgapId, []int64{context.CxtTempPDUSessionSetupData},
-		)
+		n3iwfCtx.NgapServer.RcvEventCh <- context.NewGetNGAPContextEvt(ranNgapId, []int64{context.CxtTempPDUSessionSetupData})
 	}
 }
 
-func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message *ike_message.IKEMessage) {
+func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMsg *message.IKEMessage, ikeSecurityAssociation *context.IKESecurityAssociation) {
 	logger.IKELog.Debugln("handle CREATE_CHILD_SA")
 
-	var encryptedPayload *ike_message.Encrypted
+	n3iwfCtx := context.N3IWFSelf()
 
-	n3iwfSelf := context.N3IWFSelf()
-
-	responseIKEMessage := new(ike_message.IKEMessage)
-
-	if message == nil {
-		logger.IKELog.Errorln("IKE Message is nil")
-		return
-	}
-
-	// parse IKE header and setup IKE context
-	// check major version
-	majorVersion := ((message.Version & 0xf0) >> 4)
-	if majorVersion > 2 {
-		logger.IKELog.Warnln("received an IKE message with higher major version")
-		// send INFORMATIONAL type message with INVALID_MAJOR_VERSION Notify payload ( OUTSIDE IKE SA )
-		responseIKEMessage.BuildIKEHeader(message.InitiatorSPI, message.ResponderSPI,
-			ike_message.INFORMATIONAL, ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.INVALID_MAJOR_VERSION, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	// Find corresponding IKE security association
-	responderSPI := message.ResponderSPI
-
-	logger.IKELog.Debugf("create child SA responderSPI: %+v", responderSPI)
-	ikeSecurityAssociation, ok := n3iwfSelf.IKESALoad(responderSPI)
-	if !ok {
-		logger.IKELog.Warnln("unrecognized SPI")
-		// send INFORMATIONAL type message with INVALID_IKE_SPI Notify payload ( OUTSIDE IKE SA )
-		responseIKEMessage.BuildIKEHeader(0, message.ResponderSPI, ike_message.INFORMATIONAL,
-			ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.INVALID_IKE_SPI, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	for _, ikePayload := range message.Payloads {
-		switch ikePayload.Type() {
-		case ike_message.TypeSK:
-			encryptedPayload = ikePayload.(*ike_message.Encrypted)
-		default:
-			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in CREATE_CHILD_SA message, this payload will not be handled by IKE handler",
-				ikePayload.Type())
-		}
-	}
-
-	decryptedIKEPayload, err := DecryptProcedure(ikeSecurityAssociation, message, encryptedPayload)
-	if err != nil {
-		logger.IKELog.Errorf("decrypt IKE message failed: %+v", err)
+	if !ikeSecurityAssociation.IKEConnection.UEAddr.IP.Equal(ueAddr.IP) ||
+		!ikeSecurityAssociation.IKEConnection.N3IWFAddr.IP.Equal(n3iwfAddr.IP) {
+		logger.IKELog.Warnf("get unexpteced IP in SPI: %016x", ikeSecurityAssociation.LocalSPI)
 		return
 	}
 
 	// Parse payloads
-	var securityAssociation *ike_message.SecurityAssociation
-	var nonce *ike_message.Nonce
-	var trafficSelectorInitiator *ike_message.TrafficSelectorInitiator
-	var trafficSelectorResponder *ike_message.TrafficSelectorResponder
+	var securityAssociation *message.SecurityAssociation
+	var nonce *message.Nonce
+	var trafficSelectorInitiator *message.TrafficSelectorInitiator
+	var trafficSelectorResponder *message.TrafficSelectorResponder
 
-	for _, ikePayload := range decryptedIKEPayload {
+	for _, ikePayload := range ikeMsg.Payloads {
 		switch ikePayload.Type() {
-		case ike_message.TypeSA:
-			securityAssociation = ikePayload.(*ike_message.SecurityAssociation)
-		case ike_message.TypeNiNr:
-			nonce = ikePayload.(*ike_message.Nonce)
-		case ike_message.TypeTSi:
-			trafficSelectorInitiator = ikePayload.(*ike_message.TrafficSelectorInitiator)
-		case ike_message.TypeTSr:
-			trafficSelectorResponder = ikePayload.(*ike_message.TrafficSelectorResponder)
+		case message.TypeSA:
+			securityAssociation = ikePayload.(*message.SecurityAssociation)
+		case message.TypeNiNr:
+			nonce = ikePayload.(*message.Nonce)
+		case message.TypeTSi:
+			trafficSelectorInitiator = ikePayload.(*message.TrafficSelectorInitiator)
+		case message.TypeTSr:
+			trafficSelectorResponder = ikePayload.(*message.TrafficSelectorResponder)
 		default:
 			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in CREATE_CHILD_SA message, this payload will not be handled by IKE handler",
+				"get IKE payload (type %d) in CREATE_CHILD_SA ikeMsg, this payload will not be handled by IKE handler",
 				ikePayload.Type())
 		}
 	}
 
-	// Check received message
+	// Check received ikeMsg
 	if securityAssociation == nil {
-		logger.IKELog.Errorln("the security association field is nil")
+		logger.IKELog.Errorln("security association field is nil")
 		return
 	}
 
 	if trafficSelectorInitiator == nil {
-		logger.IKELog.Errorln("the traffic selector initiator field is nil")
+		logger.IKELog.Errorln("traffic selector initiator field is nil")
 		return
 	}
 
 	if trafficSelectorResponder == nil {
-		logger.IKELog.Errorln("the traffic selector responder field is nil")
+		logger.IKELog.Errorln("traffic selector responder field is nil")
 		return
 	}
 
 	// Nonce
 	if nonce == nil {
-		logger.IKELog.Errorln("the nonce field is nil")
-		// TODO: send error message to UE
+		logger.IKELog.Errorln("nonce field is nil")
+		// TODO: send error ikeMsg to UE
 		return
 	}
 	ikeSecurityAssociation.ConcatenatedNonce = append(ikeSecurityAssociation.ConcatenatedNonce, nonce.NonceData...)
@@ -1159,7 +861,7 @@ func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 		TrafficSelectorResponder: trafficSelectorResponder,
 	}
 
-	ranNgapId, ok := n3iwfSelf.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
+	ranNgapId, ok := n3iwfCtx.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
 	if !ok {
 		logger.IKELog.Errorf("cannot get RanNgapID from SPI: %+v", ikeSecurityAssociation.LocalSPI)
 		return
@@ -1167,14 +869,14 @@ func HandleCREATECHILDSA(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 
 	ngapCxtReqNumlist := []int64{context.CxtTempPDUSessionSetupData}
 
-	n3iwfSelf.NgapServer.RcvEventCh <- context.NewGetNGAPContextEvt(ranNgapId,
-		ngapCxtReqNumlist)
+	n3iwfCtx.NgapServer.RcvEventCh <- context.NewGetNGAPContextEvt(ranNgapId, ngapCxtReqNumlist)
 }
 
 func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociation,
 	temporaryPDUSessionSetupData *context.PDUSessionSetupTemporaryData,
 ) {
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
+	ipsecGwAddr := n3iwfCtx.IpSecGatewayAddress
 
 	// UE context
 	ikeUe := ikeSecurityAssociation.IkeUE
@@ -1211,9 +913,9 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 	// Build TSi if there is no one in the response
 	if len(temporaryIkeMsg.TrafficSelectorInitiator.TrafficSelectors) == 0 {
 		logger.IKELog.Warnln("there is no TSi in CREATE_CHILD_SA response")
-		n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
+		n3iwfIPAddr := net.ParseIP(ipsecGwAddr)
 		temporaryIkeMsg.TrafficSelectorInitiator.TrafficSelectors.BuildIndividualTrafficSelector(
-			ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
+			message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll,
 			0, 65535, n3iwfIPAddr, n3iwfIPAddr)
 	}
 
@@ -1222,7 +924,7 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 		logger.IKELog.Warnln("there is no TSr in CREATE_CHILD_SA response")
 		ueIPAddr := ikeUe.IPSecInnerIP
 		temporaryIkeMsg.TrafficSelectorResponder.TrafficSelectors.BuildIndividualTrafficSelector(
-			ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
+			message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll,
 			0, 65535, ueIPAddr, ueIPAddr)
 	}
 
@@ -1237,62 +939,62 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 	// Select GRE traffic
 	childSecurityAssociationContext.SelectedIPProtocol = unix.IPPROTO_GRE
 
-	if errGen := GenerateKeyForChildSA(ikeSecurityAssociation, childSecurityAssociationContext); errGen != nil {
-		logger.IKELog.Errorf("generate key for child SA failed: %+v", errGen)
+	if err := childSecurityAssociationContext.ChildSAKey.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
+		logger.IKELog.Errorf("generate key for child SA failed: %+v", err)
 		return
 	}
 	// NAT-T concern
-	if ikeSecurityAssociation.UEIsBehindNAT || ikeSecurityAssociation.N3IWFIsBehindNAT {
+	if ikeSecurityAssociation.UeBehindNAT || ikeSecurityAssociation.N3iwfBehindNAT {
 		childSecurityAssociationContext.EnableEncapsulate = true
 		childSecurityAssociationContext.N3IWFPort = ikeConnection.N3IWFAddr.Port
 		childSecurityAssociationContext.NATPort = ikeConnection.UEAddr.Port
 	}
 
-	newXfrmiId := n3iwfSelf.XfrmInterfaceId
+	newXfrmiId := n3iwfCtx.XfrmInterfaceId
 
 	// The additional PDU session will be separated from default xfrm interface
 	// to avoid SPD entry collision
 	if ikeUe.PduSessionListLen > 1 {
 		// Setup XFRM interface for ipsec
 		var linkIPSec netlink.Link
-		n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress).To4()
-		n3iwfIPAddrAndSubnet := net.IPNet{IP: n3iwfIPAddr, Mask: n3iwfSelf.Subnet.Mask}
-		newXfrmiId += n3iwfSelf.XfrmInterfaceId + n3iwfSelf.XfrmIfaceIdOffsetForUP
-		newXfrmiName := fmt.Sprintf("%s-%d", n3iwfSelf.XfrmInterfaceName, newXfrmiId)
+		n3iwfIPAddr := net.ParseIP(ipsecGwAddr).To4()
+		n3iwfIPAddrAndSubnet := net.IPNet{IP: n3iwfIPAddr, Mask: n3iwfCtx.Subnet.Mask}
+		newXfrmiId += n3iwfCtx.XfrmInterfaceId + n3iwfCtx.XfrmIfaceIdOffsetForUP
+		newXfrmiName := fmt.Sprintf("%s-%d", n3iwfCtx.XfrmInterfaceName, newXfrmiId)
 
-		if linkIPSec, err = xfrm.SetupIPsecXfrmi(newXfrmiName, n3iwfSelf.XfrmParentIfaceName,
-			newXfrmiId, n3iwfIPAddrAndSubnet); err != nil {
+		if linkIPSec, err = xfrm.SetupIPsecXfrmi(newXfrmiName, n3iwfCtx.XfrmParentIfaceName, newXfrmiId, n3iwfIPAddrAndSubnet); err != nil {
 			logger.IKELog.Errorf("setup XFRM interface %s fail: %+v", newXfrmiName, err)
 			return
 		}
 
-		n3iwfSelf.XfrmIfaces.LoadOrStore(newXfrmiId, linkIPSec)
+		logger.IKELog.Infof("setup XFRM interface: %s", newXfrmiName)
+		n3iwfCtx.XfrmIfaces.LoadOrStore(newXfrmiId, linkIPSec)
 		childSecurityAssociationContext.XfrmIface = linkIPSec
-		n3iwfSelf.XfrmIfaceIdOffsetForUP++
+		n3iwfCtx.XfrmIfaceIdOffsetForUP++
 	} else {
-		if linkIPSec, ok := n3iwfSelf.XfrmIfaces.Load(newXfrmiId); ok {
-			childSecurityAssociationContext.XfrmIface = linkIPSec.(netlink.Link)
-		} else {
+		linkIPSec, ok := n3iwfCtx.XfrmIfaces.Load(newXfrmiId)
+		if !ok {
 			logger.IKELog.Warnf("cannot find the XFRM interface with if_id: %d", newXfrmiId)
 			return
 		}
+		childSecurityAssociationContext.XfrmIface = linkIPSec.(netlink.Link)
 	}
 
 	// Apply XFRM rules
+	childSecurityAssociationContext.LocalIsInitiator = true
 	if err = xfrm.ApplyXFRMRule(true, newXfrmiId, childSecurityAssociationContext); err != nil {
 		logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 		return
-	} else {
-		ranNgapId, ok := n3iwfSelf.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
-		if !ok {
-			logger.IKELog.Errorf("cannot get RanNgapId from SPI: %+v", ikeSecurityAssociation.LocalSPI)
-			return
-		}
-		// Forward PDU Seesion Establishment Accept to UE
-		n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendNASMsgEvt(
-			ranNgapId,
-		)
 	}
+	logger.IKELog.Debugln(childSecurityAssociationContext.String(newXfrmiId))
+
+	ranNgapId, ok := n3iwfCtx.NgapIdLoad(ikeSecurityAssociation.LocalSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get RanNgapId from SPI: %+v", ikeSecurityAssociation.LocalSPI)
+		return
+	}
+	// Forward NAS ikeMsg related to PDU Seesion Establishment Accept to UE
+	n3iwfCtx.NgapServer.RcvEventCh <- context.NewSendNASMsgEvt(ranNgapId)
 
 	temporaryPDUSessionSetupData.FailedErrStr = append(temporaryPDUSessionSetupData.FailedErrStr, context.ErrNil)
 
@@ -1302,49 +1004,12 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 	CreatePDUSessionChildSA(ikeUe, temporaryPDUSessionSetupData)
 }
 
-func HandleInformational(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, message *ike_message.IKEMessage) {
+func HandleInformational(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMsg *message.IKEMessage, ikeSecurityAssociation *context.IKESecurityAssociation) {
 	logger.IKELog.Debugln("handle Informational")
 
-	if message == nil {
-		logger.IKELog.Errorln("IKE Message is nil")
-		return
-	}
-
-	n3iwfSelf := context.N3IWFSelf()
-	responseIKEMessage := new(ike_message.IKEMessage)
-	responderSPI := message.ResponderSPI
-	ikeSecurityAssociation, ok := n3iwfSelf.IKESALoad(responderSPI)
-	var encryptedPayload *ike_message.Encrypted
-
-	if !ok {
-		logger.IKELog.Warnln("unrecognized SPI")
-		// send INFORMATIONAL type message with INVALID_IKE_SPI Notify payload ( OUTSIDE IKE SA )
-		responseIKEMessage.BuildIKEHeader(0, message.ResponderSPI, ike_message.INFORMATIONAL,
-			ike_message.ResponseBitCheck, message.MessageID)
-		responseIKEMessage.Payloads.Reset()
-		responseIKEMessage.Payloads.BuildNotification(ike_message.TypeNone, ike_message.INVALID_IKE_SPI, nil, nil)
-
-		SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage)
-
-		return
-	}
-
-	for _, ikePayload := range message.Payloads {
-		switch ikePayload.Type() {
-		case ike_message.TypeSK:
-			encryptedPayload = ikePayload.(*ike_message.Encrypted)
-		default:
-			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in Inoformational message, this payload will not be handled by IKE handler",
-				ikePayload.Type())
-		}
-	}
-
-	decryptedIKEPayload, err := DecryptProcedure(ikeSecurityAssociation, message, encryptedPayload)
-	if err != nil {
-		logger.IKELog.Errorf("decrypt IKE message failed: %+v", err)
-		return
-	}
+	var deletePayload *message.Delete
+	var err error
+	responseIKEPayload := new(message.IKEPayloadContainer)
 
 	n3iwfIke := ikeSecurityAssociation.IkeUE
 
@@ -1354,41 +1019,32 @@ func HandleInformational(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, m
 		atomic.StoreInt32(&n3iwfIke.N3IWFIKESecurityAssociation.CurrentRetryTimes, 0)
 	}
 
-	if len(decryptedIKEPayload) == 0 { // Receive DPD message
-		return
-	}
-
-	for _, ikePayload := range decryptedIKEPayload {
+	for _, ikePayload := range ikeMsg.Payloads {
 		switch ikePayload.Type() {
-		case ike_message.TypeD:
-			deletePayload := ikePayload.(*ike_message.Delete)
-
-			ranNgapId, ok := n3iwfSelf.NgapIdLoad(n3iwfIke.N3IWFIKESecurityAssociation.LocalSPI)
-			if !ok {
-				logger.IKELog.Errorf("cannot get RanNgapId from SPI: %+v", n3iwfIke.N3IWFIKESecurityAssociation.LocalSPI)
-				return
-			}
-
-			switch deletePayload.ProtocolID {
-			case ike_message.TypeIKE: // Check if UE is response to a request that delete the ike SA
-				if err := n3iwfIke.Remove(); err != nil {
-					logger.IKELog.Errorf("delete IkeUe Context error: %+v", err)
-				}
-				n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendUEContextReleaseCompleteEvt(
-					ranNgapId,
-				)
-			case ike_message.TypeESP:
-				n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendPDUSessionResourceReleaseResEvt(
-					ranNgapId,
-				)
-			}
+		case message.TypeD:
+			deletePayload = ikePayload.(*message.Delete)
 		default:
 			logger.IKELog.Warnf(
-				"get IKE payload (type %d) in Inoformational message, this payload will not be handled by IKE handler",
+				"get IKE payload (type %d) in Inoformational ikeMsg, this payload will not be handled by IKE handler",
 				ikePayload.Type())
 		}
 	}
-	ikeSecurityAssociation.ResponderMessageID++
+
+	if deletePayload != nil {
+		responseIKEPayload, err = handleDeletePayload(deletePayload, ikeMsg.IsResponse(), ikeSecurityAssociation)
+		if err != nil {
+			logger.IKELog.Errorf("HandleInformational(): %v", err)
+			return
+		}
+	}
+
+	if ikeMsg.IsResponse() {
+		ikeSecurityAssociation.ResponderMessageID++
+	} else { // Get Request ikeMsg
+		SendUEInformationExchange(ikeSecurityAssociation, ikeSecurityAssociation.IKESAKey,
+			responseIKEPayload, false, true, ikeMsg.MessageID,
+			udpConn, ueAddr, n3iwfAddr)
+	}
 }
 
 func HandleEvent(ikeEvt context.IkeEvt) {
@@ -1406,7 +1062,7 @@ func HandleEvent(ikeEvt context.IkeEvt) {
 	case context.CreatePDUSession:
 		HandleCreatePDUSession(ikeEvt)
 	case context.IKEDeleteRequest:
-		HandleIKEDeleteRequest(ikeEvt)
+		HandleIKEDeleteEvt(ikeEvt)
 	case context.SendChildSADeleteRequest:
 		HandleSendChildSADeleteRequest(ikeEvt)
 	case context.IKEContextUpdate:
@@ -1427,20 +1083,20 @@ func HandleUnmarshalEAP5GDataResponse(ikeEvt context.IkeEvt) {
 	ranUeNgapId := unmarshalEAP5GDataResponseEvt.RanUeNgapId
 	nasPDU := unmarshalEAP5GDataResponseEvt.NasPDU
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 
 	// Create UE context
-	ikeUe := n3iwfSelf.NewN3iwfIkeUe(localSPI)
+	ikeUe := n3iwfCtx.NewN3iwfIkeUe(localSPI)
 
 	// Relative context
 	ikeSecurityAssociation.IkeUE = ikeUe
 	ikeUe.N3IWFIKESecurityAssociation = ikeSecurityAssociation
 	ikeUe.IKEConnection = ikeSecurityAssociation.IKEConnection
 
-	n3iwfSelf.IkeSpiNgapIdMapping(ikeUe.N3IWFIKESecurityAssociation.LocalSPI, ranUeNgapId)
+	n3iwfCtx.IkeSpiNgapIdMapping(ikeUe.N3IWFIKESecurityAssociation.LocalSPI, ranUeNgapId)
 
-	n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendInitialUEMessageEvt(
+	n3iwfCtx.NgapServer.RcvEventCh <- context.NewSendInitialUEMessageEvt(
 		ranUeNgapId,
 		ikeSecurityAssociation.IKEConnection.UEAddr.IP.To4().String(),
 		ikeSecurityAssociation.IKEConnection.UEAddr.Port,
@@ -1449,41 +1105,38 @@ func HandleUnmarshalEAP5GDataResponse(ikeEvt context.IkeEvt) {
 }
 
 func HandleSendEAP5GFailureMsg(ikeEvt context.IkeEvt) {
-	logger.IKELog.Warnln("handle SendEAP5GFailureMsg event")
+	logger.IKELog.Debugln("handle SendEAP5GFailureMsg event")
 
 	sendEAP5GFailureMsgEvt := ikeEvt.(*context.SendEAP5GFailureMsgEvt)
 	errMsg := sendEAP5GFailureMsgEvt.ErrMsg
 	localSPI := sendEAP5GFailureMsgEvt.LocalSPI
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 	logger.IKELog.Warnf("EAP Failure: %s", errMsg.Error())
 
-	responseIKEMessage := new(ike_message.IKEMessage)
-	var responseIKEPayload ike_message.IKEPayloadContainer
+	var responseIKEPayload message.IKEPayloadContainer
 	// Send EAP failure
-	// Build IKE message
-	responseIKEMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI,
-		ike_message.IKE_AUTH, ike_message.ResponseBitCheck, ikeSecurityAssociation.InitiatorMessageID)
-	responseIKEMessage.Payloads.Reset()
 
 	// EAP
-	identifier, err := GenerateRandomUint8()
+	identifier, err := security.GenerateRandomUint8()
 	if err != nil {
 		logger.IKELog.Errorf("generate random uint8 failed: %+v", err)
 		return
 	}
 	responseIKEPayload.BuildEAPFailure(identifier)
 
-	if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-		logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
-		return
-	}
+	// Build IKE ikeMsg
+	responseIKEMessage := message.NewMessage(ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI,
+		message.IKE_AUTH, true, false, ikeSecurityAssociation.InitiatorMessageID, responseIKEPayload)
 
-	// Send IKE message to UE
-	SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
+	// Send IKE ikeMsg to UE
+	err = SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
 		ikeSecurityAssociation.IKEConnection.N3IWFAddr, ikeSecurityAssociation.IKEConnection.UEAddr,
-		responseIKEMessage)
+		responseIKEMessage, ikeSecurityAssociation.IKESAKey)
+	if err != nil {
+		logger.IKELog.Errorf("HandleSendEAP5GFailureMsg(): %v", err)
+	}
 }
 
 func HandleSendEAPSuccessMsg(ikeEvt context.IkeEvt) {
@@ -1492,28 +1145,29 @@ func HandleSendEAPSuccessMsg(ikeEvt context.IkeEvt) {
 	sendEAPSuccessMsgEvt := ikeEvt.(*context.SendEAPSuccessMsgEvt)
 	localSPI := sendEAPSuccessMsgEvt.LocalSPI
 	kn3iwf := sendEAPSuccessMsgEvt.Kn3iwf
+	pduSessionListLen := sendEAPSuccessMsgEvt.PduSessionListLen
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 
 	if kn3iwf != nil {
 		ikeSecurityAssociation.IkeUE.Kn3iwf = kn3iwf
 	}
 
-	ikeSecurityAssociation.IkeUE.PduSessionListLen = sendEAPSuccessMsgEvt.PduSessionListLen
+	ikeSecurityAssociation.IkeUE.PduSessionListLen = pduSessionListLen
 
-	responseIKEMessage := new(ike_message.IKEMessage)
-	var responseIKEPayload ike_message.IKEPayloadContainer
+	var responseIKEPayload message.IKEPayloadContainer
 
-	// Build IKE message
-	responseIKEMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI,
-		ikeSecurityAssociation.LocalSPI, ike_message.IKE_AUTH, ike_message.ResponseBitCheck,
-		ikeSecurityAssociation.InitiatorMessageID)
-	responseIKEMessage.Payloads.Reset()
+	responseIKEPayload.Reset()
 
 	var identifier uint8
+	var err error
 	for {
-		identifier = uint8(mathRand.Uint32())
+		identifier, err = security.GenerateRandomUint8()
+		if err != nil {
+			logger.IKELog.Errorf("HandleSendEAPSuccessMsg() rand: %v", err)
+			return
+		}
 		if identifier != ikeSecurityAssociation.LastEAPIdentifier {
 			ikeSecurityAssociation.LastEAPIdentifier = identifier
 			break
@@ -1522,15 +1176,20 @@ func HandleSendEAPSuccessMsg(ikeEvt context.IkeEvt) {
 
 	responseIKEPayload.BuildEAPSuccess(identifier)
 
-	if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-		logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
+	// Build IKE ikeMsg
+	responseIKEMessage := message.NewMessage(ikeSecurityAssociation.RemoteSPI,
+		ikeSecurityAssociation.LocalSPI, message.IKE_AUTH, true, false,
+		ikeSecurityAssociation.InitiatorMessageID, responseIKEPayload)
+
+	// Send IKE ikeMsg to UE
+	err = SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
+		ikeSecurityAssociation.IKEConnection.N3IWFAddr,
+		ikeSecurityAssociation.IKEConnection.UEAddr, responseIKEMessage,
+		ikeSecurityAssociation.IKESAKey)
+	if err != nil {
+		logger.IKELog.Errorf("HandleSendEAPSuccessMsg(): %v", err)
 		return
 	}
-
-	// Send IKE message to UE
-	SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
-		ikeSecurityAssociation.IKEConnection.N3IWFAddr,
-		ikeSecurityAssociation.IKEConnection.UEAddr, responseIKEMessage)
 
 	ikeSecurityAssociation.State++
 }
@@ -1542,38 +1201,45 @@ func HandleSendEAPNASMsg(ikeEvt context.IkeEvt) {
 	localSPI := sendEAPNASMsgEvt.LocalSPI
 	nasPDU := sendEAPNASMsgEvt.NasPDU
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 
-	responseIKEMessage := new(ike_message.IKEMessage)
-	var responseIKEPayload ike_message.IKEPayloadContainer
-
-	// Build IKE message
-	responseIKEMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI,
-		ikeSecurityAssociation.LocalSPI, ike_message.IKE_AUTH, ike_message.ResponseBitCheck,
-		ikeSecurityAssociation.InitiatorMessageID)
-	responseIKEMessage.Payloads.Reset()
+	var responseIKEPayload message.IKEPayloadContainer
+	responseIKEPayload.Reset()
 
 	var identifier uint8
+	var err error
 	for {
-		identifier = uint8(mathRand.Uint32())
+		identifier, err = security.GenerateRandomUint8()
+		if err != nil {
+			logger.IKELog.Errorf("HandleSendEAPNASMsg() rand: %v", err)
+			return
+		}
 		if identifier != ikeSecurityAssociation.LastEAPIdentifier {
 			ikeSecurityAssociation.LastEAPIdentifier = identifier
 			break
 		}
 	}
 
-	responseIKEPayload.BuildEAP5GNAS(identifier, nasPDU)
-
-	if err := EncryptProcedure(ikeSecurityAssociation, responseIKEPayload, responseIKEMessage); err != nil {
-		logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
+	err = responseIKEPayload.BuildEAP5GNAS(identifier, nasPDU)
+	if err != nil {
+		logger.IKELog.Errorf("HandleSendEAPNASMsg() BuildEAP5GNAS: %v", err)
 		return
 	}
 
-	// Send IKE message to UE
-	SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
+	// Build IKE ikeMsg
+	responseIKEMessage := message.NewMessage(ikeSecurityAssociation.RemoteSPI,
+		ikeSecurityAssociation.LocalSPI, message.IKE_AUTH, true, false,
+		ikeSecurityAssociation.InitiatorMessageID, responseIKEPayload)
+
+	// Send IKE ikeMsg to UE
+	err = SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
 		ikeSecurityAssociation.IKEConnection.N3IWFAddr,
-		ikeSecurityAssociation.IKEConnection.UEAddr, responseIKEMessage)
+		ikeSecurityAssociation.IKEConnection.UEAddr, responseIKEMessage,
+		ikeSecurityAssociation.IKESAKey)
+	if err != nil {
+		logger.IKELog.Errorf("HandleSendEAPNASMsg(): %v", err)
+	}
 }
 
 func HandleCreatePDUSession(ikeEvt context.IkeEvt) {
@@ -1583,21 +1249,42 @@ func HandleCreatePDUSession(ikeEvt context.IkeEvt) {
 	localSPI := createPDUSessionEvt.LocalSPI
 	temporaryPDUSessionSetupData := createPDUSessionEvt.TempPDUSessionSetupData
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 
 	ikeSecurityAssociation.IkeUE.PduSessionListLen = createPDUSessionEvt.PduSessionListLen
 
 	CreatePDUSessionChildSA(ikeSecurityAssociation.IkeUE, temporaryPDUSessionSetupData)
 }
 
-func HandleIKEDeleteRequest(ikeEvt context.IkeEvt) {
+func HandleIKEDeleteEvt(ikeEvt context.IkeEvt) {
 	logger.IKELog.Debugln("handle IKEDeleteRequest event")
 
 	ikeDeleteRequest := ikeEvt.(*context.IKEDeleteRequestEvt)
 	localSPI := ikeDeleteRequest.LocalSPI
 
-	SendIKEDeleteRequest(localSPI)
+	SendIKEDeleteRequest(context.N3IWFSelf(), localSPI)
+
+	// In normal case, should wait response and then remove ikeUe.
+	// Remove ikeUe here to prevent no response received.
+	// Even response replied, it will be discarded.
+	err := removeIkeUe(localSPI)
+	if err != nil {
+		logger.IKELog.Errorf("HandleIKEDeleteEvt(): %v", err)
+	}
+}
+
+func removeIkeUe(localSPI uint64) error {
+	n3iwfCtx := context.N3IWFSelf()
+	ikeUe, ok := n3iwfCtx.IkeUePoolLoad(localSPI)
+	if !ok {
+		return fmt.Errorf("cannot get IkeUE from SPI: %016x", localSPI)
+	}
+	err := ikeUe.Remove()
+	if err != nil {
+		return fmt.Errorf("delete IkeUe error: %w", err)
+	}
+	return nil
 }
 
 func HandleSendChildSADeleteRequest(ikeEvt context.IkeEvt) {
@@ -1641,8 +1328,8 @@ func HandleGetNGAPContextResponse(ikeEvt context.IkeEvt) {
 	ngapCxtReqNumlist := getNGAPContextRepEvt.NgapCxtReqNumlist
 	ngapCxt := getNGAPContextRepEvt.NgapCxt
 
-	n3iwfSelf := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfSelf.IKESALoad(localSPI)
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
 
 	var tempPDUSessionSetupData *context.PDUSessionSetupTemporaryData
 
@@ -1668,10 +1355,12 @@ func HandleGetNGAPContextResponse(ikeEvt context.IkeEvt) {
 func CreatePDUSessionChildSA(ikeUe *context.N3IWFIkeUe,
 	temporaryPDUSessionSetupData *context.PDUSessionSetupTemporaryData,
 ) {
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
+	ipsecGwAddr := n3iwfCtx.IpSecGatewayAddress
+
 	ikeSecurityAssociation := ikeUe.N3IWFIKESecurityAssociation
 
-	ranNgapId, ok := n3iwfSelf.NgapIdLoad(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
+	ranNgapId, ok := n3iwfCtx.NgapIdLoad(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
 	if !ok {
 		logger.IKELog.Errorf("cannot get RanNgapId from SPI: %+v", ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
 		return
@@ -1683,218 +1372,309 @@ func CreatePDUSessionChildSA(ikeUe *context.N3IWFIkeUe,
 			pduSessionID := pduSession.Id
 
 			// Send CREATE_CHILD_SA to UE
-			ikeMessage := new(ike_message.IKEMessage)
-			var ikePayload ike_message.IKEPayloadContainer
+			var responseIKEPayload message.IKEPayloadContainer
 			errStr := context.ErrNil
 
-			// Build IKE message
-			ikeMessage.BuildIKEHeader(ikeSecurityAssociation.RemoteSPI,
-				ikeSecurityAssociation.LocalSPI, ike_message.CREATE_CHILD_SA,
-				0, ikeSecurityAssociation.ResponderMessageID)
-			ikeMessage.Payloads.Reset()
+			responseIKEPayload.Reset()
 
 			// Build SA
-			requestSA := ikePayload.BuildSecurityAssociation()
+			requestSA := responseIKEPayload.BuildSecurityAssociation()
 
 			// Allocate SPI
 			var spi uint32
 			spiByte := make([]byte, 4)
 			for {
-				randomUint64 := GenerateRandomNumber().Uint64()
-				if _, ok := n3iwfSelf.ChildSA.Load(uint32(randomUint64)); !ok {
-					spi = uint32(randomUint64)
+				var err error
+				buf := make([]byte, 4)
+				_, err = rand.Read(buf)
+				if err != nil {
+					logger.IKELog.Errorf("createPDUSessionChildSA Generate SPI: %v", err)
+					return
+				}
+				randomUint32 := binary.BigEndian.Uint32(buf)
+				if _, ok := n3iwfCtx.ChildSA.Load(randomUint32); !ok {
+					spi = randomUint32
 					break
 				}
 			}
 			binary.BigEndian.PutUint32(spiByte, spi)
 
 			// First Proposal - Proposal No.1
-			proposal := requestSA.Proposals.BuildProposal(1, ike_message.TypeESP, spiByte)
+			proposal := requestSA.Proposals.BuildProposal(1, message.TypeESP, spiByte)
 
 			// Encryption transform
-			var attributeType uint16 = ike_message.AttributeTypeKeyLength
-			var attributeValue uint16 = 256
-			proposal.EncryptionAlgorithm.BuildTransform(ike_message.TypeEncryptionAlgorithm,
-				ike_message.ENCR_AES_CBC, &attributeType, &attributeValue, nil)
+			encrTranform, err := encr.ToTransform(ikeSecurityAssociation.EncrInfo)
+			if err != nil {
+				logger.IKELog.Errorf("encr ToTransform error: %v", err)
+				break
+			}
+
+			proposal.EncryptionAlgorithm = append(proposal.EncryptionAlgorithm,
+				encrTranform)
 			// Integrity transform
 			if pduSession.SecurityIntegrity {
-				proposal.IntegrityAlgorithm.BuildTransform(ike_message.TypeIntegrityAlgorithm,
-					ike_message.AUTH_HMAC_SHA1_96, nil, nil, nil)
+				proposal.IntegrityAlgorithm = append(proposal.IntegrityAlgorithm,
+					integ.ToTransform(ikeSecurityAssociation.IntegInfo))
 			}
 
 			// ESN transform
-			proposal.ExtendedSequenceNumbers.BuildTransform(ike_message.TypeExtendedSequenceNumbers,
-				ike_message.ESN_NO, nil, nil, nil)
+			proposal.ExtendedSequenceNumbers.BuildTransform(message.TypeExtendedSequenceNumbers, message.ESN_DISABLE, nil, nil, nil)
 
-			ikeUe.CreateHalfChildSA(ikeMessage.MessageID, spi, pduSessionID)
+			ikeUe.CreateHalfChildSA(ikeSecurityAssociation.ResponderMessageID, spi, pduSessionID)
 
 			// Build Nonce
-			nonceData := GenerateRandomNumber().Bytes()
-			ikePayload.BuildNonce(nonceData)
+			nonceDataBigInt, errGen := security.GenerateRandomNumber()
+			if errGen != nil {
+				logger.IKELog.Errorf("createPDUSessionChildSA Build Nonce: %v", errGen)
+				return
+			}
+			nonceData := nonceDataBigInt.Bytes()
+			responseIKEPayload.BuildNonce(nonceData)
 
 			// Store nonce into context
 			ikeSecurityAssociation.ConcatenatedNonce = nonceData
 
 			// TSi
-			n3iwfIPAddr := net.ParseIP(n3iwfSelf.IpSecGatewayAddress)
-			tsi := ikePayload.BuildTrafficSelectorInitiator()
+			n3iwfIPAddr := net.ParseIP(ipsecGwAddr)
+			tsi := responseIKEPayload.BuildTrafficSelectorInitiator()
 			tsi.TrafficSelectors.BuildIndividualTrafficSelector(
-				ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
+				message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll,
 				0, 65535, n3iwfIPAddr.To4(), n3iwfIPAddr.To4())
 
 			// TSr
 			ueIPAddr := ikeUe.IPSecInnerIP
-			tsr := ikePayload.BuildTrafficSelectorResponder()
-			tsr.TrafficSelectors.BuildIndividualTrafficSelector(ike_message.TS_IPV4_ADDR_RANGE, ike_message.IPProtocolAll,
+			tsr := responseIKEPayload.BuildTrafficSelectorResponder()
+			tsr.TrafficSelectors.BuildIndividualTrafficSelector(message.TS_IPV4_ADDR_RANGE, message.IPProtocolAll,
 				0, 65535, ueIPAddr.To4(), ueIPAddr.To4())
 
+			if pduSessionID < 0 || pduSessionID > math.MaxUint8 {
+				logger.IKELog.Errorf("createPDUSessionChildSA pduSessionID exceeds uint8 range: %d", pduSessionID)
+				break
+			}
 			// Notify-Qos
-			ikePayload.BuildNotify5G_QOS_INFO(uint8(pduSessionID), pduSession.QFIList, true, false, 0)
+			err = responseIKEPayload.BuildNotify5G_QOS_INFO(uint8(pduSessionID), pduSession.QFIList, true, false, 0)
+			if err != nil {
+				logger.IKELog.Errorf("createPDUSessionChildSA error: %v", err)
+				break
+			}
 
 			// Notify-UP_IP_ADDRESS
-			ikePayload.BuildNotifyUP_IP4_ADDRESS(n3iwfSelf.IpSecGatewayAddress)
+			responseIKEPayload.BuildNotifyUP_IP4_ADDRESS(ipsecGwAddr)
 
 			temporaryPDUSessionSetupData.Index++
 
-			if err := EncryptProcedure(ikeUe.N3IWFIKESecurityAssociation, ikePayload, ikeMessage); err != nil {
-				logger.IKELog.Errorf("encrypting IKE message failed: %+v", err)
+			// Build IKE ikeMsg
+			ikeMessage := message.NewMessage(ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI,
+				message.CREATE_CHILD_SA, false, false, ikeSecurityAssociation.ResponderMessageID,
+				responseIKEPayload)
+
+			err = SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn,
+				ikeSecurityAssociation.IKEConnection.N3IWFAddr,
+				ikeSecurityAssociation.IKEConnection.UEAddr, ikeMessage,
+				ikeSecurityAssociation.IKESAKey)
+			if err != nil {
+				logger.IKELog.Errorf("createPDUSessionChildSA error: %v", err)
 				errStr = context.ErrTransportResourceUnavailable
 				temporaryPDUSessionSetupData.FailedErrStr = append(temporaryPDUSessionSetupData.FailedErrStr,
 					errStr)
-				continue
+			} else {
+				temporaryPDUSessionSetupData.FailedErrStr = append(temporaryPDUSessionSetupData.FailedErrStr,
+					errStr)
+				break
 			}
-
-			temporaryPDUSessionSetupData.FailedErrStr = append(temporaryPDUSessionSetupData.FailedErrStr,
-				errStr)
-
-			SendIKEMessageToUE(ikeSecurityAssociation.IKEConnection.Conn, ikeSecurityAssociation.IKEConnection.N3IWFAddr,
-				ikeSecurityAssociation.IKEConnection.UEAddr, ikeMessage)
-			break
 		} else {
-			n3iwfSelf.NgapServer.RcvEventCh <- context.NewSendPDUSessionResourceSetupResEvt(
-				ranNgapId,
-			)
+			n3iwfCtx.NgapServer.RcvEventCh <- context.NewSendPDUSessionResourceSetupResEvt(ranNgapId)
 			break
 		}
 	}
 }
 
-func is_supported(transformType uint8, transformID uint16, attributePresent bool, attributeValue uint16) bool {
-	switch transformType {
-	case ike_message.TypeEncryptionAlgorithm:
-		switch transformID {
-		case ike_message.ENCR_DES_IV64:
-			return false
-		case ike_message.ENCR_DES:
-			return false
-		case ike_message.ENCR_3DES:
-			return false
-		case ike_message.ENCR_RC5:
-			return false
-		case ike_message.ENCR_IDEA:
-			return false
-		case ike_message.ENCR_CAST:
-			return false
-		case ike_message.ENCR_BLOWFISH:
-			return false
-		case ike_message.ENCR_3IDEA:
-			return false
-		case ike_message.ENCR_DES_IV32:
-			return false
-		case ike_message.ENCR_NULL:
-			return false
-		case ike_message.ENCR_AES_CBC:
-			if !attributePresent {
-				return false
+func StartDPD(ikeUe *context.N3IWFIkeUe) {
+	defer util.RecoverWithLog(logger.IKELog)
+
+	ikeUe.N3IWFIKESecurityAssociation.IKESAClosedCh = make(chan struct{})
+
+	n3iwfCtx := context.N3IWFSelf()
+	ikeSA := ikeUe.N3IWFIKESecurityAssociation
+
+	liveness := factory.N3iwfConfig.Configuration.LivenessCheck
+	if liveness.Enable {
+		ikeSA.IsUseDPD = true
+		timer := time.NewTicker(liveness.TransFreq)
+		for {
+			select {
+			case <-ikeSA.IKESAClosedCh:
+				close(ikeSA.IKESAClosedCh)
+				timer.Stop()
+				return
+			case <-timer.C:
+				var payload *message.IKEPayloadContainer
+				SendUEInformationExchange(ikeSA, ikeSA.IKESAKey, payload, false, false,
+					ikeSA.ResponderMessageID, ikeUe.IKEConnection.Conn, ikeUe.IKEConnection.UEAddr,
+					ikeUe.IKEConnection.N3IWFAddr)
+
+				var DPDReqRetransTime time.Duration = 2 * time.Second // TODO: make it configurable
+				ikeSA.DPDReqRetransTimer = context.NewDPDPeriodicTimer(
+					DPDReqRetransTime, liveness.MaxRetryTimes, ikeSA,
+					func() {
+						logger.IKELog.Errorf("UE is down")
+						ranNgapId, ok := n3iwfCtx.NgapIdLoad(ikeSA.LocalSPI)
+						if !ok {
+							logger.IKELog.Infof("cannot find ranNgapId form SPI: %+v",
+								ikeSA.LocalSPI)
+							return
+						}
+
+						n3iwfCtx.NgapServer.RcvEventCh <- context.NewSendUEContextReleaseRequestEvt(
+							ranNgapId, context.ErrRadioConnWithUeLost,
+						)
+
+						ikeSA.DPDReqRetransTimer = nil
+						timer.Stop()
+					})
 			}
-			switch attributeValue {
-			case 128:
-				return true
-			case 192:
-				return true
-			case 256:
-				return true
-			default:
-				return false
-			}
-		case ike_message.ENCR_AES_CTR:
-			return false
-		default:
-			return false
 		}
-	case ike_message.TypePseudorandomFunction:
-		switch transformID {
-		case ike_message.PRF_HMAC_MD5:
-			return true
-		case ike_message.PRF_HMAC_SHA1:
-			return true
-		case ike_message.PRF_HMAC_TIGER:
-			return false
-		default:
-			return false
-		}
-	case ike_message.TypeIntegrityAlgorithm:
-		switch transformID {
-		case ike_message.AUTH_NONE:
-			return false
-		case ike_message.AUTH_HMAC_MD5_96:
-			return true
-		case ike_message.AUTH_HMAC_SHA1_96:
-			return true
-		case ike_message.AUTH_DES_MAC:
-			return false
-		case ike_message.AUTH_KPDK_MD5:
-			return false
-		case ike_message.AUTH_AES_XCBC_96:
-			return false
-		default:
-			return false
-		}
-	case ike_message.TypeDiffieHellmanGroup:
-		switch transformID {
-		case ike_message.DH_NONE:
-			return false
-		case ike_message.DH_768_BIT_MODP:
-			return false
-		case ike_message.DH_1024_BIT_MODP:
-			return true
-		case ike_message.DH_1536_BIT_MODP:
-			return false
-		case ike_message.DH_2048_BIT_MODP:
-			return true
-		case ike_message.DH_3072_BIT_MODP:
-			return false
-		case ike_message.DH_4096_BIT_MODP:
-			return false
-		case ike_message.DH_6144_BIT_MODP:
-			return false
-		case ike_message.DH_8192_BIT_MODP:
-			return false
-		default:
-			return false
-		}
-	default:
-		return false
 	}
 }
 
-func is_Kernel_Supported(
-	transformType uint8, transformID uint16, attributePresent bool, attributeValue uint16,
-) bool {
+func handleNATDetect(initiatorSPI, responderSPI uint64, notifications []*message.Notification, ueAddr, n3iwfAddr *net.UDPAddr) (bool, bool, error) {
+	ueBehindNAT := false
+	n3iwfBehindNAT := false
+
+	srcNatDData, err := generateNATDetectHash(initiatorSPI, responderSPI, ueAddr)
+	if err != nil {
+		return false, false, fmt.Errorf("handle NATD: %w", err)
+	}
+
+	dstNatDData, err := generateNATDetectHash(initiatorSPI, responderSPI, n3iwfAddr)
+	if err != nil {
+		return false, false, fmt.Errorf("handle NATD: %w", err)
+	}
+
+	for _, notification := range notifications {
+		switch notification.NotifyMessageType {
+		case message.NAT_DETECTION_SOURCE_IP:
+			logger.IKELog.Debugln("received IKE Notify: NAT_DETECTION_SOURCE_IP")
+			if !bytes.Equal(notification.NotificationData, srcNatDData) {
+				logger.IKELog.Debugf("UE(SPI: %016x) is behind NAT", responderSPI)
+				ueBehindNAT = true
+			}
+		case message.NAT_DETECTION_DESTINATION_IP:
+			logger.IKELog.Debugln("received IKE Notify: NAT_DETECTION_DESTINATION_IP")
+			if !bytes.Equal(notification.NotificationData, dstNatDData) {
+				logger.IKELog.Debugf("N3IWF is behind NAT")
+				n3iwfBehindNAT = true
+			}
+		default:
+		}
+	}
+	return ueBehindNAT, n3iwfBehindNAT, nil
+}
+
+func generateNATDetectHash(
+	initiatorSPI, responderSPI uint64,
+	addr *net.UDPAddr,
+) ([]byte, error) {
+	// Calculate NAT_DETECTION hash for NAT-T
+	// : sha1(ispi | rspi | ip | port)
+	natdData := make([]byte, 22)
+	binary.BigEndian.PutUint64(natdData[0:8], initiatorSPI)
+	binary.BigEndian.PutUint64(natdData[8:16], responderSPI)
+	copy(natdData[16:20], addr.IP.To4())
+	binary.BigEndian.PutUint16(natdData[20:22], uint16(addr.Port)) // #nosec G115
+
+	sha1HashFunction := sha1.New() // #nosec G401
+	_, err := sha1HashFunction.Write(natdData)
+	if err != nil {
+		return nil, fmt.Errorf("generate NATD Hash: %w", err)
+	}
+	return sha1HashFunction.Sum(nil), nil
+}
+
+func buildNATDetectNotifPayload(ikeSA *context.IKESecurityAssociation,
+	payload *message.IKEPayloadContainer,
+	ueAddr, n3iwfAddr *net.UDPAddr,
+) error {
+	srcNatDHash, err := generateNATDetectHash(ikeSA.RemoteSPI, ikeSA.LocalSPI, n3iwfAddr)
+	if err != nil {
+		return fmt.Errorf("build NATD: %w", err)
+	}
+	// Build and append notify payload for NAT_DETECTION_SOURCE_IP
+	payload.BuildNotification(
+		message.TypeNone, message.NAT_DETECTION_SOURCE_IP, nil, srcNatDHash)
+
+	dstNatDHash, err := generateNATDetectHash(ikeSA.RemoteSPI, ikeSA.LocalSPI, ueAddr)
+	if err != nil {
+		return fmt.Errorf("build NATD: %w", err)
+	}
+	// Build and append notify payload for NAT_DETECTION_DESTINATION_IP
+	payload.BuildNotification(
+		message.TypeNone, message.NAT_DETECTION_DESTINATION_IP, nil, dstNatDHash)
+
+	return nil
+}
+
+func handleDeletePayload(payload *message.Delete, isResponse bool,
+	ikeSecurityAssociation *context.IKESecurityAssociation) (
+	*message.IKEPayloadContainer, error,
+) {
+	var evt context.NgapEvt
+	var err error
+	n3iwfCtx := context.N3IWFSelf()
+	n3iwfIke := ikeSecurityAssociation.IkeUE
+	responseIKEPayload := new(message.IKEPayloadContainer)
+
+	ranNgapId, ok := n3iwfCtx.NgapIdLoad(n3iwfIke.N3IWFIKESecurityAssociation.LocalSPI)
+	if !ok {
+		return nil, fmt.Errorf("cannot get RanNgapId from SPI: %+v",
+			n3iwfIke.N3IWFIKESecurityAssociation.LocalSPI)
+	}
+
+	switch payload.ProtocolID {
+	case message.TypeIKE:
+		if !isResponse {
+			err = n3iwfIke.Remove()
+			if err != nil {
+				return nil, fmt.Errorf("delete IkeUe Context error: %w", err)
+			}
+		}
+
+		evt = context.NewSendUEContextReleaseEvt(ranNgapId)
+	case message.TypeESP:
+		var deletSPIs []uint32
+		var deletPduIds []int64
+		if !isResponse {
+			deletSPIs, deletPduIds, err = deleteChildSAFromSPIList(n3iwfIke, payload.SPIs)
+			if err != nil {
+				return nil, fmt.Errorf("handleDeletePayload: %w", err)
+			}
+			responseIKEPayload.BuildDeletePayload(message.TypeESP, 4, uint16(len(deletSPIs)), deletSPIs)
+		}
+
+		evt = context.NewSendPDUSessionResourceReleaseEvt(ranNgapId, deletPduIds)
+	default:
+		return nil, fmt.Errorf("get Protocol ID %d in Informational delete payload, "+
+			"this payload will not be handled by IKE handler", payload.ProtocolID)
+	}
+	n3iwfCtx.NgapServer.RcvEventCh <- evt
+	return responseIKEPayload, nil
+}
+
+func isTransformKernelSupported(transformType uint8, transformID uint16, attributePresent bool, attributeValue uint16) bool {
 	switch transformType {
-	case ike_message.TypeEncryptionAlgorithm:
+	case message.TypeEncryptionAlgorithm:
 		switch transformID {
-		case ike_message.ENCR_DES_IV64:
+		case message.ENCR_DES_IV64:
 			return false
-		case ike_message.ENCR_DES:
+		case message.ENCR_DES:
 			return true
-		case ike_message.ENCR_3DES:
+		case message.ENCR_3DES:
 			return true
-		case ike_message.ENCR_RC5:
+		case message.ENCR_RC5:
 			return false
-		case ike_message.ENCR_IDEA:
+		case message.ENCR_IDEA:
 			return false
-		case ike_message.ENCR_CAST:
+		case message.ENCR_CAST:
 			if !attributePresent {
 				return false
 			}
@@ -1906,29 +1686,15 @@ func is_Kernel_Supported(
 			default:
 				return false
 			}
-		case ike_message.ENCR_BLOWFISH:
+		case message.ENCR_BLOWFISH:
 			return true
-		case ike_message.ENCR_3IDEA:
+		case message.ENCR_3IDEA:
 			return false
-		case ike_message.ENCR_DES_IV32:
+		case message.ENCR_DES_IV32:
 			return false
-		case ike_message.ENCR_NULL:
+		case message.ENCR_NULL:
 			return true
-		case ike_message.ENCR_AES_CBC:
-			if !attributePresent {
-				return false
-			}
-			switch attributeValue {
-			case 128:
-				return true
-			case 192:
-				return true
-			case 256:
-				return true
-			default:
-				return false
-			}
-		case ike_message.ENCR_AES_CTR:
+		case message.ENCR_AES_CBC:
 			if !attributePresent {
 				return false
 			}
@@ -1942,54 +1708,70 @@ func is_Kernel_Supported(
 			default:
 				return false
 			}
+		case message.ENCR_AES_CTR:
+			if !attributePresent {
+				return false
+			}
+			switch attributeValue {
+			case 128:
+				return true
+			case 192:
+				return true
+			case 256:
+				return true
+			default:
+				return false
+			}
 		default:
 			return false
 		}
-	case ike_message.TypeIntegrityAlgorithm:
+	case message.TypeIntegrityAlgorithm:
 		switch transformID {
-		case ike_message.AUTH_NONE:
+		case message.AUTH_NONE:
 			return false
-		case ike_message.AUTH_HMAC_MD5_96:
+		case message.AUTH_HMAC_MD5_96:
 			return true
-		case ike_message.AUTH_HMAC_SHA1_96:
+		case message.AUTH_HMAC_SHA1_96:
 			return true
-		case ike_message.AUTH_DES_MAC:
+		case message.AUTH_DES_MAC:
 			return false
-		case ike_message.AUTH_KPDK_MD5:
+		case message.AUTH_KPDK_MD5:
 			return false
-		case ike_message.AUTH_AES_XCBC_96:
+		case message.AUTH_AES_XCBC_96:
+			return true
+		case message.AUTH_HMAC_SHA2_256_128:
 			return true
 		default:
 			return false
 		}
-	case ike_message.TypeDiffieHellmanGroup:
+	case message.TypeDiffieHellmanGroup:
 		switch transformID {
-		case ike_message.DH_NONE:
-			return false
-		case ike_message.DH_768_BIT_MODP:
-			return false
-		case ike_message.DH_1024_BIT_MODP:
-			return false
-		case ike_message.DH_1536_BIT_MODP:
-			return false
-		case ike_message.DH_2048_BIT_MODP:
-			return false
-		case ike_message.DH_3072_BIT_MODP:
-			return false
-		case ike_message.DH_4096_BIT_MODP:
-			return false
-		case ike_message.DH_6144_BIT_MODP:
-			return false
-		case ike_message.DH_8192_BIT_MODP:
-			return false
+		// case message.DH_NONE:
+		// 	return false
+		// case message.DH_768_BIT_MODP:
+		// 	return false
+		// case message.DH_1024_BIT_MODP:
+		// 	return false
+		// case message.DH_1536_BIT_MODP:
+		// 	return false
+		// case message.DH_2048_BIT_MODP:
+		// 	return false
+		// case message.DH_3072_BIT_MODP:
+		// 	return false
+		// case message.DH_4096_BIT_MODP:
+		// 	return false
+		// case message.DH_6144_BIT_MODP:
+		// 	return false
+		// case message.DH_8192_BIT_MODP:
+		// 	return false
 		default:
 			return false
 		}
-	case ike_message.TypeExtendedSequenceNumbers:
+	case message.TypeExtendedSequenceNumbers:
 		switch transformID {
-		case ike_message.ESN_NO:
+		case message.ESN_ENABLE:
 			return true
-		case ike_message.ESN_NEED:
+		case message.ESN_DISABLE:
 			return true
 		default:
 			return false
@@ -2002,11 +1784,11 @@ func is_Kernel_Supported(
 func parseIPAddressInformationToChildSecurityAssociation(
 	childSecurityAssociation *context.ChildSecurityAssociation,
 	uePublicIPAddr net.IP,
-	trafficSelectorLocal *ike_message.IndividualTrafficSelector,
-	trafficSelectorRemote *ike_message.IndividualTrafficSelector,
+	trafficSelectorLocal *message.IndividualTrafficSelector,
+	trafficSelectorRemote *message.IndividualTrafficSelector,
 ) error {
 	if childSecurityAssociation == nil {
-		return errors.New("childSecurityAssociation is nil")
+		return fmt.Errorf("childSecurityAssociation is nil")
 	}
 
 	childSecurityAssociation.PeerPublicIPAddr = uePublicIPAddr
@@ -2026,4 +1808,117 @@ func parseIPAddressInformationToChildSecurityAssociation(
 	}
 
 	return nil
+}
+
+func SelectProposal(proposals message.ProposalContainer) message.ProposalContainer {
+	var chooseProposal message.ProposalContainer
+
+	for _, proposal := range proposals {
+		// We need ENCR, PRF, INTEG, DH, but not ESN
+
+		var encryptionAlgorithmTransform, pseudorandomFunctionTransform *message.Transform
+		var integrityAlgorithmTransform, diffieHellmanGroupTransform *message.Transform
+		var chooseDH dh.DHType
+		var chooseEncr encr.ENCRType
+		var chooseInte integ.INTEGType
+		var choosePrf prf.PRFType
+
+		for _, transform := range proposal.DiffieHellmanGroup {
+			dhType := dh.DecodeTransform(transform)
+			if dhType != nil {
+				if diffieHellmanGroupTransform == nil {
+					diffieHellmanGroupTransform = transform
+					chooseDH = dhType
+				}
+			}
+		}
+		if chooseDH == nil {
+			continue // mandatory
+		}
+
+		for _, transform := range proposal.EncryptionAlgorithm {
+			encrType := encr.DecodeTransform(transform)
+			if encrType != nil {
+				if encryptionAlgorithmTransform == nil {
+					encryptionAlgorithmTransform = transform
+					chooseEncr = encrType
+				}
+			}
+		}
+		if chooseEncr == nil {
+			continue // mandatory
+		}
+
+		for _, transform := range proposal.IntegrityAlgorithm {
+			integType := integ.DecodeTransform(transform)
+			if integType != nil {
+				if integrityAlgorithmTransform == nil {
+					integrityAlgorithmTransform = transform
+					chooseInte = integType
+				}
+			}
+		}
+		if chooseInte == nil {
+			continue // mandatory
+		}
+
+		for _, transform := range proposal.PseudorandomFunction {
+			prfType := prf.DecodeTransform(transform)
+			if prfType != nil {
+				if pseudorandomFunctionTransform == nil {
+					pseudorandomFunctionTransform = transform
+					choosePrf = prfType
+				}
+			}
+		}
+		if choosePrf == nil {
+			continue // mandatory
+		}
+		if len(proposal.ExtendedSequenceNumbers) > 0 {
+			continue // No ESN
+		}
+
+		// Construct chosen proposal, with ENCR, PRF, INTEG, DH, and each contains
+		// one transform expectively
+		chosenProposal := chooseProposal.BuildProposal(proposal.ProposalNumber, proposal.ProtocolID, nil)
+		chosenProposal.EncryptionAlgorithm = append(chosenProposal.EncryptionAlgorithm, encryptionAlgorithmTransform)
+		chosenProposal.IntegrityAlgorithm = append(chosenProposal.IntegrityAlgorithm, integrityAlgorithmTransform)
+		chosenProposal.PseudorandomFunction = append(chosenProposal.PseudorandomFunction, pseudorandomFunctionTransform)
+		chosenProposal.DiffieHellmanGroup = append(chosenProposal.DiffieHellmanGroup, diffieHellmanGroupTransform)
+		break
+	}
+	return chooseProposal
+}
+
+func deleteChildSAFromSPIList(ikeUe *context.N3IWFIkeUe, spiList []uint32) (
+	[]uint32, []int64, error,
+) {
+	var deleteSPIs []uint32
+	var deletePduIds []int64
+
+	for _, spi := range spiList {
+		found := false
+		for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+			if childSA.OutboundSPI == spi {
+				found = true
+				deleteSPIs = append(deleteSPIs, childSA.InboundSPI)
+
+				if len(childSA.PDUSessionIds) == 0 {
+					return nil, nil, fmt.Errorf("child_SA SPI: 0x%08x does not have PDU session id", spi)
+				}
+				deletePduIds = append(deletePduIds, childSA.PDUSessionIds[0])
+
+				err := ikeUe.DeleteChildSA(childSA)
+				if err != nil {
+					return nil, nil, fmt.Errorf("DeleteChildSAFromSPIList: %w", err)
+				}
+				break
+			}
+		}
+		if !found {
+			logger.IKELog.Warnf("get unknown Child_SA with SPI: 0x%08x", spi)
+		}
+	}
+
+	return deleteSPIs, deletePduIds, nil
 }

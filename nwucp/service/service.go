@@ -6,10 +6,10 @@
 package service
 
 import (
+	"bufio"
 	"encoding/binary"
-	"encoding/hex"
-	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -22,158 +22,142 @@ import (
 
 var tcpListener net.Listener
 
-// Run setup N3IWF NAS for UE to forward NAS message
-// to AMF
-func Run(wg *sync.WaitGroup) error {
-	// N3IWF context
-	n3iwfSelf := context.N3IWFSelf()
-	tcpAddr := fmt.Sprintf("%s:%d", n3iwfSelf.IpSecGatewayAddress, n3iwfSelf.TcpPort)
-
-	listener, err := net.Listen("tcp", tcpAddr)
+// Run sets up N3IWF NAS for UE to forward NAS message to AMF
+func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
+	nasTcpAddress := fmt.Sprintf("%s:%d", n3iwfCtx.IpSecGatewayAddress, n3iwfCtx.TcpPort)
+	listener, err := net.Listen("tcp", nasTcpAddress)
 	if err != nil {
-		logger.NWuCPLog.Errorf("listen TCP address failed: %+v", err)
-		return errors.New("listen failed")
+		logger.NWuCPLog.Errorf("failed to listen on TCP address: %+v", err)
+		return err
 	}
-
 	tcpListener = listener
 
-	logger.NWuCPLog.Debugf("successfully listen %+v", tcpAddr)
+	logger.NWuCPLog.Debugf("successfully listening on %+v", nasTcpAddress)
 
 	wg.Add(1)
-	go listenAndServe(tcpListener, wg)
+	go listenAndServe(wg)
 
 	return nil
 }
 
-// listenAndServe handles TCP listener and accepts incoming
-// requests. It also stores accepted connection into UE
-// context, and finally, calls serveConn() to serve the messages
-// received from the connection.
-func listenAndServe(listener net.Listener, wg *sync.WaitGroup) {
+// listenAndServe handles TCP listener and accepts incoming requests.
+// Stores accepted connection into UE context, and calls serveConn() to handle messages.
+func listenAndServe(wg *sync.WaitGroup) {
+	defer util.RecoverWithLog(logger.NWuCPLog)
 	defer func() {
-		err := tcpListener.Close()
-		if err != nil {
+		if err := tcpListener.Close(); err != nil {
 			logger.NWuCPLog.Errorf("error closing tcpListener: %+v", err)
 		}
 		wg.Done()
 	}()
 
-	defer util.RecoverWithLog(logger.NWuCPLog)
-
 	for {
-		connection, err := listener.Accept()
+		conn, err := tcpListener.Accept()
 		if err != nil {
-			logger.NWuCPLog.Errorf("TCP server accept failed: %+v. Close the listener...", err)
+			logger.NWuCPLog.Errorf("TCP server accept failed: %+v. Closing the listener", err)
 			return
 		}
 
-		logger.NWuCPLog.Debugf("accepted one UE from %+v", connection.RemoteAddr())
+		logger.NWuCPLog.Infof("accepted UE from %+v", conn.RemoteAddr())
 
-		// Find UE context and store this connection into it, then check if
-		// there is any cached NAS message for this UE. If yes, send to it.
-		n3iwfSelf := context.N3IWFSelf()
-
-		ueIP := strings.SplitN(connection.RemoteAddr().String(), ":", 2)[0]
-		ikeUe, ok := n3iwfSelf.AllocatedUEIPAddressLoad(ueIP)
+		n3iwfCtx := context.N3IWFSelf()
+		ueIP := strings.SplitN(conn.RemoteAddr().String(), ":", 2)[0]
+		ikeUe, ok := n3iwfCtx.AllocatedUEIPAddressLoad(ueIP)
 		if !ok {
 			logger.NWuCPLog.Errorf("UE context not found for peer %+v", ueIP)
-			_ = connection.Close()
+			_ = conn.Close()
 			continue
 		}
 
-		ranUe, err := n3iwfSelf.RanUeLoadFromIkeSPI(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
+		ranUe, err := n3iwfCtx.RanUeLoadFromIkeSPI(ikeUe.N3IWFIKESecurityAssociation.LocalSPI)
 		if err != nil {
 			logger.NWuCPLog.Errorf("RanUe context not found: %+v", err)
-			_ = connection.Close()
+			_ = conn.Close()
 			continue
 		}
-		// Store connection
-		ranUe.TCPConnection = connection
 
-		n3iwfSelf.NgapServer.RcvEventCh <- context.NewNASTCPConnEstablishedCompleteEvt(
-			ranUe.RanUeNgapId,
-		)
+		n3iwfUe, ok := ranUe.(*context.N3IWFRanUe)
+		if !ok {
+			logger.NWuCPLog.Errorf("type assertion: RanUe -> N3iwfUe failed")
+			_ = conn.Close()
+			continue
+		}
+
+		// Store connection
+		n3iwfUe.TCPConnection = conn
+
+		n3iwfCtx.NgapServer.RcvEventCh <- context.NewNASTCPConnEstablishedCompleteEvt(n3iwfUe.RanUeNgapId)
 
 		wg.Add(1)
-		go serveConn(ranUe, connection, wg)
+		go serveConn(n3iwfUe, conn, wg)
 	}
 }
 
-func decapNasMsgFromEnvelope(envelop []byte) []byte {
-	// According to TS 24.502 8.2.4,
-	// in order to transport a NAS message over the non-3GPP access between the UE and the N3IWF,
-	// the NAS message shall be framed in a NAS message envelope as defined in subclause 9.4.
-	// According to TS 24.502 9.4,
-	// a NAS message envelope = Length | NAS Message
-
-	// Get NAS Message Length
-	nasLen := binary.BigEndian.Uint16(envelop[:2])
-	nasMsg := make([]byte, nasLen)
-	copy(nasMsg, envelop[2:2+nasLen])
-
-	return nasMsg
-}
-
-func Stop(n3iwfContext *context.N3IWFContext) {
-	logger.NWuCPLog.Infoln("close Nwucp server")
+// Stop closes the NWuCP server and all UE connections
+func Stop(n3iwfCtx *context.N3IWFContext) {
+	logger.NWuCPLog.Infoln("closing NWuCP server")
 
 	if err := tcpListener.Close(); err != nil {
-		logger.NWuCPLog.Errorf("stop nwuup server error: %+v", err)
+		logger.NWuCPLog.Errorf("error stopping NWuCP server: %+v", err)
 	}
 
-	n3iwfContext.RanUePool.Range(
+	n3iwfCtx.RanUePool.Range(
 		func(key, value any) bool {
-			ranUe := value.(*context.N3IWFRanUe)
-			if ranUe.TCPConnection != nil {
+			ranUe, ok := value.(*context.N3IWFRanUe)
+			if ok && ranUe.TCPConnection != nil {
 				if err := ranUe.TCPConnection.Close(); err != nil {
-					logger.InitLog.Errorf("stop nwucp server error: %+v", err)
+					logger.InitLog.Errorf("error closing UE TCP connection: %+v", err)
 				}
 			}
 			return true
 		})
 }
 
-// serveConn handle accepted TCP connection. It reads NAS packets
-// from the connection and call forward() to forward NAS messages
-// to AMF
-func serveConn(ranUe *context.N3IWFRanUe, connection net.Conn, wg *sync.WaitGroup) {
+// serveConn handles accepted TCP connection. Reads NAS packets and forwards to AMF
+func serveConn(ranUe *context.N3IWFRanUe, conn net.Conn, wg *sync.WaitGroup) {
+	defer util.RecoverWithLog(logger.NWuCPLog)
 	defer func() {
-		err := connection.Close()
-		if err != nil {
+		if err := conn.Close(); err != nil {
 			logger.NWuCPLog.Errorf("error closing connection: %+v", err)
 		}
 		wg.Done()
 	}()
 
-	defer util.RecoverWithLog(logger.NWuCPLog)
-
-	data := make([]byte, 65535)
+	reader := bufio.NewReader(conn)
+	buf := make([]byte, context.MAX_BUF_MSG_LEN)
 	for {
-		n, err := connection.Read(data)
+		// Read the length of NAS message
+		_, err := io.ReadFull(reader, buf[:2])
 		if err != nil {
-			logger.NWuCPLog.Errorf("read TCP connection failed: %+v", err)
+			logger.NWuCPLog.Errorf("failed to read NAS message length: %+v", err)
 			ranUe.TCPConnection = nil
 			return
 		}
-		logger.NWuCPLog.Debugf("get NAS PDU from UE: NAS length: %d, NAS content: %s", n, hex.Dump(data[:n]))
+		nasLen := binary.BigEndian.Uint16(buf[:2])
+		if int(nasLen) > cap(buf) {
+			buf = make([]byte, nasLen)
+		}
 
-		// Decap Nas envelope
-		forwardData := decapNasMsgFromEnvelope(data)
+		// Read the NAS message
+		n, err := io.ReadFull(reader, buf[:nasLen])
+		if err != nil {
+			logger.NWuCPLog.Errorf("failed to read NAS message: %+v", err)
+			ranUe.TCPConnection = nil
+			return
+		}
+		forwardData := make([]byte, n)
+		copy(forwardData, buf[:n])
 
 		wg.Add(1)
 		go forward(ranUe, forwardData, wg)
 	}
 }
 
-// forward forwards NAS messages sent from UE to the
-// associated AMF
+// forward sends NAS messages from UE to the associated AMF
 func forward(ranUe *context.N3IWFRanUe, packet []byte, wg *sync.WaitGroup) {
-	defer func() {
-		wg.Done()
-	}()
-
+	defer wg.Done()
 	defer util.RecoverWithLog(logger.NWuCPLog)
 
-	logger.NWuCPLog.Debugln("forward NWu -> N2")
+	logger.NWuCPLog.Debugln("forwarding NWu -> N2")
 	message.SendUplinkNASTransport(ranUe, packet)
 }

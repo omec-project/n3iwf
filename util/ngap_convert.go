@@ -8,7 +8,6 @@ package util
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"strings"
 
 	"github.com/omec-project/aper"
 	"github.com/omec-project/n3iwf/context"
@@ -16,14 +15,17 @@ import (
 	"github.com/omec-project/ngap/ngapType"
 )
 
+// PlmnIdToNgap converts a PlmnId to NGAP PLMNIdentity format.
 func PlmnIdToNgap(plmnId context.PlmnId) (ngapPlmnId ngapType.PLMNIdentity) {
+	mcc := plmnId.Mcc
+	mnc := plmnId.Mnc
 	var hexString string
-	mcc := strings.Split(plmnId.Mcc, "")
-	mnc := strings.Split(plmnId.Mnc, "")
-	if len(plmnId.Mnc) == 2 {
-		hexString = mcc[1] + mcc[0] + "f" + mcc[2] + mnc[1] + mnc[0]
+	if len(mnc) == 2 {
+		// 2-digit MNC: use 'f' as filler
+		hexString = string(mcc[1]) + string(mcc[0]) + "f" + string(mcc[2]) + string(mnc[1]) + string(mnc[0])
 	} else {
-		hexString = mcc[1] + mcc[0] + mnc[0] + mcc[2] + mnc[2] + mnc[1]
+		// 3-digit MNC
+		hexString = string(mcc[1]) + string(mcc[0]) + string(mnc[0]) + string(mcc[2]) + string(mnc[2]) + string(mnc[1])
 	}
 	var err error
 	ngapPlmnId.Value, err = hex.DecodeString(hexString)
@@ -33,10 +35,12 @@ func PlmnIdToNgap(plmnId context.PlmnId) (ngapPlmnId ngapType.PLMNIdentity) {
 	return
 }
 
+// N3iwfIdToNgap converts a uint16 N3IWF ID to NGAP BitString format.
 func N3iwfIdToNgap(n3iwfId uint16) (ngapN3iwfId *aper.BitString) {
-	ngapN3iwfId = new(aper.BitString)
-	ngapN3iwfId.Bytes = make([]byte, 2)
+	ngapN3iwfId = &aper.BitString{
+		Bytes:     make([]byte, 2),
+		BitLength: 16,
+	}
 	binary.BigEndian.PutUint16(ngapN3iwfId.Bytes, n3iwfId)
-	ngapN3iwfId.BitLength = 16
 	return
 }

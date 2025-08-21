@@ -15,7 +15,7 @@ var (
 	AppLog      *zap.SugaredLogger
 	InitLog     *zap.SugaredLogger
 	CfgLog      *zap.SugaredLogger
-	ContextLog  *zap.SugaredLogger
+	CtxLog      *zap.SugaredLogger
 	NgapLog     *zap.SugaredLogger
 	IKELog      *zap.SugaredLogger
 	GTPLog      *zap.SugaredLogger
@@ -37,14 +37,16 @@ func init() {
 		ErrorOutputPaths: []string{"stderr"},
 	}
 
-	config.EncoderConfig.TimeKey = "timestamp"
-	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	config.EncoderConfig.LevelKey = "level"
-	config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-	config.EncoderConfig.CallerKey = "caller"
-	config.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
-	config.EncoderConfig.MessageKey = "message"
-	config.EncoderConfig.StacktraceKey = ""
+	// Encoder configuration
+	encCfg := &config.EncoderConfig
+	encCfg.TimeKey = "timestamp"
+	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	encCfg.LevelKey = "level"
+	encCfg.EncodeLevel = zapcore.CapitalLevelEncoder
+	encCfg.CallerKey = "caller"
+	encCfg.EncodeCaller = zapcore.ShortCallerEncoder
+	encCfg.MessageKey = "message"
+	encCfg.StacktraceKey = ""
 
 	var err error
 	log, err = config.Build()
@@ -52,10 +54,11 @@ func init() {
 		panic(err)
 	}
 
+	// Assign sugared loggers for each category
 	AppLog = log.Sugar().With("component", "N3IWF", "category", "App")
 	InitLog = log.Sugar().With("component", "N3IWF", "category", "Init")
 	CfgLog = log.Sugar().With("component", "N3IWF", "category", "CFG")
-	ContextLog = log.Sugar().With("component", "N3IWF", "category", "Context")
+	CtxLog = log.Sugar().With("component", "N3IWF", "category", "Context")
 	NgapLog = log.Sugar().With("component", "N3IWF", "category", "NGAP")
 	IKELog = log.Sugar().With("component", "N3IWF", "category", "IKE")
 	GTPLog = log.Sugar().With("component", "N3IWF", "category", "GTP")
@@ -65,11 +68,12 @@ func init() {
 	UtilLog = log.Sugar().With("component", "N3IWF", "category", "Util")
 }
 
+// GetLogger returns the base zap.Logger
 func GetLogger() *zap.Logger {
 	return log
 }
 
-// SetLogLevel: set the log level (panic|fatal|error|warn|info|debug)
+// SetLogLevel sets the log level (panic|fatal|error|warn|info|debug)
 func SetLogLevel(level zapcore.Level) {
 	InitLog.Infoln("set log level:", level)
 	atomicLevel.SetLevel(level)
