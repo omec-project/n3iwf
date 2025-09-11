@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"git.cs.nctu.edu.tw/calee/sctp"
-	"github.com/omec-project/aper"
 	"github.com/omec-project/n3iwf/context"
 	gtp_service "github.com/omec-project/n3iwf/gtp/service"
 	"github.com/omec-project/n3iwf/logger"
 	ngap_message "github.com/omec-project/n3iwf/ngap/message"
+	"github.com/omec-project/ngap/aper"
 	"github.com/omec-project/ngap/ngapConvert"
 	"github.com/omec-project/ngap/ngapType"
 )

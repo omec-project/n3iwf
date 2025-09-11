@@ -9,8 +9,8 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/omec-project/aper"
 	"github.com/omec-project/n3iwf/logger"
+	"github.com/omec-project/ngap/aper"
 	"github.com/omec-project/ngap/ngapType"
 )
 

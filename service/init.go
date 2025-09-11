@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	aperLogger "github.com/omec-project/aper/logger"
 	n3iwf_context "github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/factory"
 	ike_service "github.com/omec-project/n3iwf/ike/service"
@@ -117,21 +116,6 @@ func (n3iwf *N3IWF) setLogLevel() {
 		} else {
 			ngapLogger.NgapLog.Warnln("NGAP Log level not set. Default set to [info] level")
 			ngapLogger.SetLogLevel(zap.InfoLevel)
-		}
-	}
-
-	if factory.N3iwfConfig.Logger.Aper != nil {
-		if factory.N3iwfConfig.Logger.Aper.DebugLevel != "" {
-			if level, err := zapcore.ParseLevel(factory.N3iwfConfig.Logger.Aper.DebugLevel); err != nil {
-				aperLogger.AperLog.Warnf("Aper Log level [%s] is invalid, set to [info] level",
-					factory.N3iwfConfig.Logger.Aper.DebugLevel)
-				aperLogger.SetLogLevel(zap.InfoLevel)
-			} else {
-				aperLogger.SetLogLevel(level)
-			}
-		} else {
-			aperLogger.AperLog.Warnln("Aper Log level not set. Default set to [info] level")
-			aperLogger.SetLogLevel(zap.InfoLevel)
 		}
 	}
 
