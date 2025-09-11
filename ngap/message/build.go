@@ -9,11 +9,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 
-	"github.com/omec-project/aper"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/util"
 	"github.com/omec-project/ngap"
+	"github.com/omec-project/ngap/aper"
 	"github.com/omec-project/ngap/ngapConvert"
 	"github.com/omec-project/ngap/ngapType"
 )

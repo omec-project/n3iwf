@@ -10,7 +10,7 @@ import (
 	"fmt"
 
 	"git.cs.nctu.edu.tw/calee/sctp"
-	"github.com/omec-project/aper"
+	"github.com/omec-project/ngap/aper"
 	"github.com/omec-project/ngap/ngapConvert"
 	"github.com/omec-project/ngap/ngapType"
 )
