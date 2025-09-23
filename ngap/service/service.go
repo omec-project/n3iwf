@@ -8,17 +8,18 @@ package service
 import (
 	"errors"
 	"io"
+	"math/bits"
 	"sync"
 	"time"
 
-	"git.cs.nctu.edu.tw/calee/sctp"
+	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap"
 	"github.com/omec-project/n3iwf/ngap/handler"
 	"github.com/omec-project/n3iwf/ngap/message"
 	"github.com/omec-project/n3iwf/util"
-	lib_ngap "github.com/omec-project/ngap"
+	libNgap "github.com/omec-project/ngap"
 )
 
 var (
@@ -122,7 +123,10 @@ func receiver(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error, ngapSe
 		errChan <- errors.New("get socket information failed")
 		return
 	}
-	info.PPID = lib_ngap.PPID
+	// The previous SCTP library expected PPID in network byte order (big-endian),
+	// while the new library expects host byte order. Using bits.ReverseBytes32
+	// ensures the PPID is interpreted correctly by the new SCTP implementation.
+	info.PPID = bits.ReverseBytes32(libNgap.PPID)
 	err = conn.SetDefaultSentParam(info)
 	if err != nil {
 		logger.NgapLog.Errorf("SetDefaultSentParam(): %+v", err)
@@ -156,7 +160,7 @@ func receiver(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error, ngapSe
 	data := make([]byte, 65535)
 
 	for {
-		n, info, _, err := conn.SCTPRead(data)
+		n, info, err := conn.SCTPRead(data)
 
 		if err != nil {
 			logger.NgapLog.Debugf("AMF SCTP address: %+v", conn.RemoteAddr().String())
@@ -173,7 +177,7 @@ func receiver(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error, ngapSe
 		} else {
 			logger.NgapLog.Debugf("successfully read %d bytes", n)
 
-			if info == nil || info.PPID != lib_ngap.PPID {
+			if info == nil || bits.ReverseBytes32(info.PPID) != libNgap.PPID {
 				logger.NgapLog.Warn("received SCTP PPID != 60")
 				continue
 			}

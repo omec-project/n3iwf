@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"git.cs.nctu.edu.tw/calee/sctp"
+	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/factory"
 	"github.com/omec-project/n3iwf/logger"
