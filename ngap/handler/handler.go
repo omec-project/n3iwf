@@ -10,7 +10,7 @@ import (
 	"net"
 	"time"
 
-	"git.cs.nctu.edu.tw/calee/sctp"
+	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/context"
 	gtp_service "github.com/omec-project/n3iwf/gtp/service"
 	"github.com/omec-project/n3iwf/logger"

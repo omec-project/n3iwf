@@ -6,7 +6,7 @@
 package ngap
 
 import (
-	"git.cs.nctu.edu.tw/calee/sctp"
+	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap/handler"
