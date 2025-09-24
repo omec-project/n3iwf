@@ -272,7 +272,7 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 				}
 
 				if sst > math.MaxUint8 {
-					logger.CtxLog.Errorf("detect configuration sst length > %d", sst)
+					logger.CtxLog.Errorf("detected configuration sst value (%d) exceeds maximum allowed (%d)", sst, math.MaxUint8)
 					return false
 				}
 

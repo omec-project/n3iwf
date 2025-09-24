@@ -143,7 +143,7 @@ func ApplyXFRMRule(n3iwf_is_initiator bool, xfrmiId uint32,
 	// Direction: this_server -> {private_network}
 	var encap *netlink.XfrmStateEncap
 	if childSecurityAssociation.EnableEncapsulate {
-		logger.IKELog.Errorf("GA: N3IWFPort: %d, NATPort: %d", childSecurityAssociation.N3IWFPort, childSecurityAssociation.NATPort)
+		logger.IKELog.Debugf("N3IWFPort: %d, NATPort: %d", childSecurityAssociation.N3IWFPort, childSecurityAssociation.NATPort)
 		encap = &netlink.XfrmStateEncap{
 			Type:    netlink.XFRM_ENCAP_ESPINUDP,
 			SrcPort: childSecurityAssociation.N3IWFPort,

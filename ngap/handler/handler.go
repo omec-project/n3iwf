@@ -832,7 +832,12 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe context.RanUe, pduSessio
 		value := item.QosFlowIdentifier.Value
 		if value < 0 || value > math.MaxUint8 {
 			logger.NgapLog.Errorf("item.QosFlowIdentifier.Value exceeds uint8 range: %d", value)
-			return false, nil
+			cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
+			responseTransfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+			if err != nil {
+				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer error: %+v", err)
+			}
+			return false, responseTransfer
 		}
 		// QFI List
 		pduSession.QFIList = append(pduSession.QFIList, uint8(value))

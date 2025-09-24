@@ -112,6 +112,10 @@ func BuildNGSetupRequest(gN3iwfId *context.GlobalN3iwfId, ranNodeName string, su
 			sliceSupportList := &broadcastPLMNItem.TAISliceSupportList
 			for _, sliceSupportItemLocal := range broadcastPLMNListLocal.TaiSliceSupportList {
 				sliceSupportItem := ngapType.SliceSupportItem{}
+				if sliceSupportItemLocal.Snssai.Sst < 0 || sliceSupportItemLocal.Snssai.Sst > 255 {
+					logger.NgapLog.Errorf("invalid S-NSSAI SST value: %d (must be in [0,255]). Skipping this slice support item", sliceSupportItemLocal.Snssai.Sst)
+					continue
+				}
 				sliceSupportItem.SNSSAI.SST.Value = aper.OctetString{byte(sliceSupportItemLocal.Snssai.Sst)}
 				if sliceSupportItemLocal.Snssai.Sd != "" {
 					sliceSupportItem.SNSSAI.SD = new(ngapType.SD)
