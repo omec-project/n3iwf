@@ -6,43 +6,50 @@
 package context
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
 
+// Timer wraps a periodic ticker and cancellation context
+// for safe and efficient resource management.
 type Timer struct {
-	ticker *time.Ticker
-	done   chan bool
+	cancel context.CancelFunc
 }
 
-func NewDPDPeriodicTimer(d time.Duration, maxRetryTimes int32, ikeSA *IKESecurityAssociation,
+// NewDPDPeriodicTimer starts a periodic timer that increments retry count
+// and cancels when maxRetryTimes is reached.
+func NewDPDPeriodicTimer(
+	d time.Duration,
+	maxRetryTimes int32,
+	ikeSA *IKESecurityAssociation,
 	cancelFunc func(),
 ) *Timer {
-	t := &Timer{}
-	t.done = make(chan bool, 1)
-	t.ticker = time.NewTicker(d)
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &Timer{cancel: cancel}
 
-	go func(ticker *time.Ticker) {
+	go func() {
+		ticker := time.NewTicker(d)
 		defer ticker.Stop()
-
 		for {
 			select {
-			case <-t.done:
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				atomic.AddInt32(&ikeSA.CurrentRetryTimes, 1)
-				if atomic.LoadInt32(&ikeSA.CurrentRetryTimes) > 0 {
+				if atomic.AddInt32(&ikeSA.CurrentRetryTimes, 1) > maxRetryTimes {
 					cancelFunc()
 					return
 				}
 			}
 		}
-	}(t.ticker)
+	}()
 
 	return t
 }
 
+// Stop cancels the timer and cleans up resources.
 func (t *Timer) Stop() {
-	t.done <- true
-	close(t.done)
+	if t.cancel != nil {
+		t.cancel()
+	}
 }

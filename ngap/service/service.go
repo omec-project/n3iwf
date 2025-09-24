@@ -22,25 +22,26 @@ import (
 	libNgap "github.com/omec-project/ngap"
 )
 
-var (
+const (
 	RECEIVE_NGAPPACKET_CHANNEL_LEN = 512
 	RECEIVE_NGAPEVENT_CHANNEL_LEN  = 512
 )
 
 // Run start the N3IWF SCTP process.
-func Run(wg *sync.WaitGroup) error {
+func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	// n3iwf context
-	n3iwfSelf := context.N3IWFSelf()
-	// load amf SCTP address slice
-	amfSCTPAddresses := n3iwfSelf.AmfSctpAddresses
 
-	localAddr := n3iwfSelf.LocalSctpAddress
+	localAddr := n3iwfCtx.LocalSctpAddress
 
-	n3iwfSelf.NgapServer = NewNgapServer()
-	for _, remoteAddr := range amfSCTPAddresses {
+	n3iwfCtx.NgapServer = &context.NgapServer{
+		RcvNgapPktCh: make(chan context.NgapReceivePacket, RECEIVE_NGAPPACKET_CHANNEL_LEN),
+		RcvEventCh:   make(chan context.NgapEvt, RECEIVE_NGAPEVENT_CHANNEL_LEN),
+	}
+
+	for _, remoteAddr := range n3iwfCtx.AmfSctpAddresses {
 		errChan := make(chan error)
 		wg.Add(1)
-		go receiver(localAddr, remoteAddr, errChan, n3iwfSelf.NgapServer, wg)
+		go listenAndServe(localAddr, remoteAddr, errChan, n3iwfCtx, wg)
 		if err, ok := <-errChan; ok {
 			logger.NgapLog.Errorln(err)
 			return errors.New("NGAP service run failed")
@@ -48,26 +49,20 @@ func Run(wg *sync.WaitGroup) error {
 	}
 
 	wg.Add(1)
-	go server(n3iwfSelf.NgapServer, wg)
+	go runNgapEventHandler(n3iwfCtx.NgapServer, wg)
 
 	return nil
 }
 
-func NewNgapServer() *context.NgapServer {
-	return &context.NgapServer{
-		RcvNgapPktCh: make(chan context.ReceiveNGAPPacket, RECEIVE_NGAPPACKET_CHANNEL_LEN),
-		RcvEventCh:   make(chan context.NgapEvt, RECEIVE_NGAPEVENT_CHANNEL_LEN),
-	}
-}
+func runNgapEventHandler(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
+	defer util.RecoverWithLog(logger.NgapLog)
 
-func server(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 	defer func() {
 		logger.NgapLog.Infoln("NGAP server stopped")
 		close(ngapServer.RcvEventCh)
 		close(ngapServer.RcvNgapPktCh)
 		wg.Done()
 	}()
-	defer util.RecoverWithLog(logger.NgapLog)
 
 	for {
 		select {
@@ -82,113 +77,100 @@ func server(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 	}
 }
 
-func receiver(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error, ngapServer *context.NgapServer,
-	wg *sync.WaitGroup,
+// handleConnError closes the connection and sends an error to errChan
+func handleConnError(conn *sctp.SCTPConn, logMsg string, err error, errChan chan<- error) {
+	logger.NgapLog.Errorf(logMsg+": %+v", err)
+	if conn != nil {
+		errConn := conn.Close()
+		if errConn != nil {
+			logger.NgapLog.Errorf("conn close error: %+v", errConn)
+		}
+	}
+	errChan <- errors.New(logMsg)
+}
+
+func listenAndServe(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error,
+	n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup,
 ) {
+	defer util.RecoverWithLog(logger.NgapLog)
 	defer func() {
 		logger.NgapLog.Infoln("NGAP receiver stopped")
 		wg.Done()
 	}()
 
-	defer util.RecoverWithLog(logger.NgapLog)
-
 	var conn *sctp.SCTPConn
 	var err error
 
-	// Connect the session
+	// Try to connect up to 3 times
 	for i := range 3 {
 		conn, err = sctp.DialSCTP("sctp", localAddr, remoteAddr)
 		if err == nil {
 			break
 		}
 		logger.NgapLog.Errorf("dial SCTP: %+v", err)
-
 		if i == 2 {
-			logger.NgapLog.Debugf("AMF SCTP address: %+v", remoteAddr.String())
-			errChan <- errors.New("failed to connect to AMF")
+			logger.NgapLog.Debugf("AMF SCTP address: %s", remoteAddr.String())
+			handleConnError(nil, "failed to connect to AMF", err, errChan)
 			return
 		}
-		logger.NgapLog.Infoln("retry to connect AMF after 1 second...")
+		logger.NgapLog.Infoln("retry to connect AMF after 1 second")
 		time.Sleep(1 * time.Second)
 	}
 
 	// Set default sender SCTP information sinfo_ppid = NGAP_PPID = 60
 	info, err := conn.GetDefaultSentParam()
 	if err != nil {
-		logger.NgapLog.Errorf("GetDefaultSentParam(): %+v", err)
-		errConn := conn.Close()
-		if errConn != nil {
-			logger.NgapLog.Errorf("conn close error in GetDefaultSentParam(): %+v", errConn)
-		}
-		errChan <- errors.New("get socket information failed")
+		handleConnError(conn, "GetDefaultSentParam()", err, errChan)
 		return
 	}
 	// The previous SCTP library expected PPID in network byte order (big-endian),
 	// while the new library expects host byte order. Using bits.ReverseBytes32
 	// ensures the PPID is interpreted correctly by the new SCTP implementation.
 	info.PPID = bits.ReverseBytes32(libNgap.PPID)
-	err = conn.SetDefaultSentParam(info)
-	if err != nil {
-		logger.NgapLog.Errorf("SetDefaultSentParam(): %+v", err)
-		errConn := conn.Close()
-		if errConn != nil {
-			logger.NgapLog.Errorf("conn close error in SetDefaultSentParam(): %+v", errConn)
-		}
-		errChan <- errors.New("set socket parameter failed")
+	if err = conn.SetDefaultSentParam(info); err != nil {
+		handleConnError(conn, "SetDefaultSentParam()", err, errChan)
 		return
 	}
 
 	// Subscribe receiver SCTP information
-	err = conn.SubscribeEvents(sctp.SCTP_EVENT_DATA_IO)
-	if err != nil {
-		logger.NgapLog.Errorf("SubscribeEvents(): %+v", err)
-		errConn := conn.Close()
-		if errConn != nil {
-			logger.NgapLog.Errorf("conn close error in SubscribeEvents(): %+v", errConn)
-		}
-		errChan <- errors.New("subscribe SCTP event failed")
+	if err = conn.SubscribeEvents(sctp.SCTP_EVENT_DATA_IO); err != nil {
+		handleConnError(conn, "SubscribeEvents()", err, errChan)
 		return
 	}
 
 	// Send NG setup request
-	message.SendNGSetupRequest(conn)
-
+	message.SendNGSetupRequest(conn, n3iwfCtx)
 	close(errChan)
 
-	ngapServer.Conn = append(ngapServer.Conn, conn)
-
-	data := make([]byte, 65535)
+	n3iwfCtx.NgapServer.Conn = append(n3iwfCtx.NgapServer.Conn, conn)
+	data := make([]byte, context.MAX_BUF_MSG_LEN)
 
 	for {
 		n, info, err := conn.SCTPRead(data)
-
 		if err != nil {
 			logger.NgapLog.Debugf("AMF SCTP address: %+v", conn.RemoteAddr().String())
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				logger.NgapLog.Warnln("close connection")
-				errConn := conn.Close()
-				if errConn != nil {
-					logger.NgapLog.Errorf("conn close error: %+v", errConn)
-				}
-				ngapServer.RcvNgapPktCh <- context.ReceiveNGAPPacket{}
+				_ = conn.Close()
+				n3iwfCtx.NgapServer.RcvNgapPktCh <- context.NgapReceivePacket{} // signal closed
 				return
 			}
 			logger.NgapLog.Errorf("read from SCTP connection failed: %+v", err)
-		} else {
-			logger.NgapLog.Debugf("successfully read %d bytes", n)
+			return
+		}
+		logger.NgapLog.Debugf("successfully read %d bytes", n)
 
-			if info == nil || bits.ReverseBytes32(info.PPID) != libNgap.PPID {
-				logger.NgapLog.Warn("received SCTP PPID != 60")
-				continue
-			}
+		if info == nil || bits.ReverseBytes32(info.PPID) != libNgap.PPID {
+			logger.NgapLog.Warn("received SCTP PPID != 60")
+			continue
+		}
 
-			forwardData := make([]byte, n)
-			copy(forwardData, data[:n])
+		forwardData := make([]byte, n)
+		copy(forwardData, data[:n])
 
-			ngapServer.RcvNgapPktCh <- context.ReceiveNGAPPacket{
-				Conn: conn,
-				Buf:  forwardData[:n],
-			}
+		n3iwfCtx.NgapServer.RcvNgapPktCh <- context.NgapReceivePacket{
+			Conn: conn,
+			Buf:  forwardData,
 		}
 	}
 }

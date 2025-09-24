@@ -6,117 +6,123 @@
 package service
 
 import (
-	"errors"
+	"bytes"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"sync"
+	"syscall"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike"
 	"github.com/omec-project/n3iwf/ike/handler"
+	"github.com/omec-project/n3iwf/ike/message"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/util"
 )
 
-var (
+const (
 	RECEIVE_IKEPACKET_CHANNEL_LEN = 512
 	RECEIVE_IKEEVENT_CHANNEL_LEN  = 512
+	DEFAULT_IKE_PORT              = 500
+	DEFAULT_NATT_PORT             = 4500
 )
 
-func Run(wg *sync.WaitGroup) error {
-	n3iwfSelf := context.N3IWFSelf()
+// EspHandler defines a function to handle ESP packets
+type EspHandler func(srcIP, dstIP *net.UDPAddr, espPkt []byte) error
 
-	// Resolve UDP addresses
-	ip := n3iwfSelf.IkeBindAddress
-	udpAddrPort500, err := net.ResolveUDPAddr("udp", ip+":500")
-	if err != nil {
-		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
-		return errors.New("IKE service run failed")
-	}
-	udpAddrPort4500, err := net.ResolveUDPAddr("udp", ip+":4500")
-	if err != nil {
-		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
-		return errors.New("IKE service run failed")
-	}
-
-	n3iwfSelf.IkeServer = NewIkeServer()
-
-	// Listen and serve
-	var errChan chan error
-
-	// Port 500
-	wg.Add(1)
-	errChan = make(chan error)
-	go receiver(udpAddrPort500, n3iwfSelf.IkeServer, errChan, wg)
-	if err, ok := <-errChan; ok {
-		logger.IKELog.Errorln(err)
-		return errors.New("IKE service run failed")
-	}
-
-	// Port 4500
-	wg.Add(1)
-	errChan = make(chan error)
-	go receiver(udpAddrPort4500, n3iwfSelf.IkeServer, errChan, wg)
-	if err, ok := <-errChan; ok {
-		logger.IKELog.Errorln(err)
-		return errors.New("IKE service run failed")
-	}
-
-	wg.Add(1)
-	go server(n3iwfSelf.IkeServer, wg)
-
-	return nil
-}
-
-func NewIkeServer() *context.IkeServer {
-	return &context.IkeServer{
+// Run starts the IKE and NAT-T services and event handler
+func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
+	ip := n3iwfCtx.IkeBindAddress
+	n3iwfCtx.IkeServer = &context.IkeServer{
 		Listener:    make(map[int]*net.UDPConn),
 		RcvIkePktCh: make(chan context.IkeReceivePacket, RECEIVE_IKEPACKET_CHANNEL_LEN),
 		RcvEventCh:  make(chan context.IkeEvt, RECEIVE_IKEEVENT_CHANNEL_LEN),
 		StopServer:  make(chan struct{}),
 	}
+
+	ikeAddrPort, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, DEFAULT_IKE_PORT))
+	if err != nil {
+		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
+		return fmt.Errorf("IKE service run failed")
+	}
+	nattAddrPort, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, DEFAULT_NATT_PORT))
+	if err != nil {
+		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
+		return fmt.Errorf("NAT-T service run failed")
+	}
+
+	// Listen and serve
+	for _, addr := range []struct {
+		portName string
+		udpAddr  *net.UDPAddr
+	}{
+		{"IKE", ikeAddrPort},
+		{"NAT-T", nattAddrPort},
+	} {
+		wg.Add(1)
+		errChan := make(chan error)
+		go receiver(addr.udpAddr, errChan, n3iwfCtx, wg)
+		if err, ok := <-errChan; ok {
+			logger.IKELog.Errorf("listen and serve %s service failed: %+v", addr.portName, err)
+			return fmt.Errorf("%s service run failed", addr.portName)
+		}
+	}
+
+	wg.Add(1)
+	go runIkeEventHandler(n3iwfCtx, wg)
+
+	return nil
 }
 
-func server(ikeServer *context.IkeServer, wg *sync.WaitGroup) {
+// runIkeEventHandler processes incoming IKE packets and events
+func runIkeEventHandler(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
+	defer util.RecoverWithLog(logger.IKELog)
 	defer func() {
-		logger.IKELog.Infof("IKE server stopped")
-		close(ikeServer.RcvIkePktCh)
-		close(ikeServer.StopServer)
+		logger.IKELog.Infoln("IKE server stopped")
+		close(n3iwfCtx.IkeServer.RcvIkePktCh)
+		close(n3iwfCtx.IkeServer.RcvEventCh)
+		close(n3iwfCtx.IkeServer.StopServer)
 		wg.Done()
 	}()
-	defer util.RecoverWithLog(logger.IKELog)
 
 	for {
 		select {
-		case rcvPkt := <-ikeServer.RcvIkePktCh:
-			logger.IKELog.Debugf("receive IKE packet")
-			ike.Dispatch(&rcvPkt.Listener, &rcvPkt.LocalAddr, &rcvPkt.RemoteAddr, rcvPkt.Msg)
-		case rcvIkeEvent := <-ikeServer.RcvEventCh:
+		case rcvPkt := <-n3iwfCtx.IkeServer.RcvIkePktCh:
+			ikeMsg, ikeSA, err := checkIKEMessage(rcvPkt.Msg, rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr)
+			if err != nil {
+				logger.IKELog.Warnln(err)
+				continue
+			}
+			ike.Dispatch(rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr, ikeMsg, rcvPkt.Msg, ikeSA)
+		case rcvIkeEvent := <-n3iwfCtx.IkeServer.RcvEventCh:
 			handler.HandleEvent(rcvIkeEvent)
-		case <-ikeServer.StopServer:
+		case <-n3iwfCtx.IkeServer.StopServer:
 			return
 		}
 	}
 }
 
-func receiver(localAddr *net.UDPAddr, ikeServer *context.IkeServer, errChan chan<- error, wg *sync.WaitGroup) {
+// receiver listens for UDP packets and forwards valid IKE messages
+func receiver(localAddr *net.UDPAddr, errChan chan<- error, n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
+	defer util.RecoverWithLog(logger.IKELog)
 	defer func() {
-		logger.IKELog.Infof("IKE receiver stopped")
+		logger.IKELog.Infoln("IKE receiver stopped")
 		wg.Done()
 	}()
-	defer util.RecoverWithLog(logger.IKELog)
 
 	listener, err := net.ListenUDP("udp", localAddr)
 	if err != nil {
 		logger.IKELog.Errorf("listen UDP failed: %+v", err)
-		errChan <- errors.New("listenAndServe failed")
+		errChan <- fmt.Errorf("listenAndServe failed")
 		return
 	}
-
 	close(errChan)
 
-	ikeServer.Listener[localAddr.Port] = listener
-
-	data := make([]byte, 65535)
+	n3iwfCtx.IkeServer.Listener[localAddr.Port] = listener
+	data := make([]byte, context.MAX_BUF_MSG_LEN)
 
 	for {
 		n, remoteAddr, err := listener.ReadFromUDP(data)
@@ -127,23 +133,170 @@ func receiver(localAddr *net.UDPAddr, ikeServer *context.IkeServer, errChan chan
 
 		forwardData := make([]byte, n)
 		copy(forwardData, data[:n])
-		ikeServer.RcvIkePktCh <- context.IkeReceivePacket{
-			RemoteAddr: *remoteAddr,
-			Listener:   *listener,
-			LocalAddr:  *localAddr,
+		logger.IKELog.Debugf("recv from port(%d): %s", localAddr.Port, hex.Dump(forwardData))
+
+		// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
+		// should prepend a 4 bytes zero
+		if localAddr.Port == DEFAULT_NATT_PORT {
+			forwardData, err = handleNattMsg(forwardData, remoteAddr, localAddr, handleESPPacket)
+			if err != nil {
+				logger.IKELog.Errorf("handle NATT msg: %v", err)
+				continue
+			}
+			if forwardData == nil {
+				continue
+			}
+		}
+
+		if len(forwardData) < message.IKE_HEADER_LEN {
+			logger.IKELog.Warnf("received IKE msg is too short from %s", remoteAddr.String())
+			continue
+		}
+
+		ikePkt := context.IkeReceivePacket{
+			RemoteAddr: remoteAddr,
+			Listener:   listener,
+			LocalAddr:  localAddr,
 			Msg:        forwardData,
 		}
+		n3iwfCtx.IkeServer.RcvIkePktCh <- ikePkt
 	}
 }
 
-func Stop(n3iwfContext *context.N3IWFContext) {
-	logger.IKELog.Infoln("close IKE server")
+// handleNattMsg processes NAT-T messages and ESP packets
+func handleNattMsg(msgBuf []byte, rAddr, lAddr *net.UDPAddr, espHandler EspHandler) ([]byte, error) {
+	if len(msgBuf) == 1 && msgBuf[0] == 0xff {
+		// skip NAT-T Keepalive
+		return nil, nil
+	}
 
-	for _, ikeServerListener := range n3iwfContext.IkeServer.Listener {
+	nonEspMarker := []byte{0, 0, 0, 0} // Non-ESP Marker
+	nonEspMarkerLen := len(nonEspMarker)
+	if len(msgBuf) < nonEspMarkerLen {
+		return nil, fmt.Errorf("received msg is too short")
+	}
+	if !bytes.Equal(msgBuf[:nonEspMarkerLen], nonEspMarker) {
+		// ESP packet
+		if espHandler != nil {
+			if err := espHandler(rAddr, lAddr, msgBuf); err != nil {
+				logger.IKELog.Errorf("handle ESP packet error: %v", err)
+				return nil, fmt.Errorf("handle ESP: %w", err)
+			}
+		}
+		return nil, nil
+	}
+
+	// IKE message: skip Non-ESP Marker
+	return msgBuf[nonEspMarkerLen:], nil
+}
+
+// Stop closes all listeners and signals the server to stop
+func Stop(n3iwfCtx *context.N3IWFContext) {
+	logger.IKELog.Infoln("close IKE server")
+	for _, ikeServerListener := range n3iwfCtx.IkeServer.Listener {
 		if err := ikeServerListener.Close(); err != nil {
 			logger.IKELog.Errorf("stop IKE server: %s error: %+v", ikeServerListener.LocalAddr().String(), err)
 		}
 	}
+	n3iwfCtx.IkeServer.StopServer <- struct{}{}
+}
 
-	n3iwfContext.IkeServer.StopServer <- struct{}{}
+// checkIKEMessage validates and parses IKE messages
+func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *net.UDPAddr) (*message.IKEMessage, *context.IKESecurityAssociation, error) {
+	ikeHeader, err := message.ParseHeader(msg)
+	if err != nil {
+		logger.IKELog.Errorf("IKE msg decode header error: %v", err)
+		return nil, nil, fmt.Errorf("IKE msg decode header: %w", err)
+	}
+
+	if ikeHeader.MajorVersion > 2 {
+		payload := new(message.IKEPayloadContainer)
+		payload.BuildNotification(message.TypeNone, message.INVALID_MAJOR_VERSION, nil, nil)
+		responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,
+			message.INFORMATIONAL, true, false, ikeHeader.MessageID, *payload)
+		if err := handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
+			logger.IKELog.Errorf("check IKE message: %v", err)
+			return nil, nil, fmt.Errorf("received an IKE message with higher major version (%d>2): %w", ikeHeader.MajorVersion, err)
+		}
+		return nil, nil, fmt.Errorf("received an IKE message with higher major version (%d>2)", ikeHeader.MajorVersion)
+	}
+
+	var ikeMessage *message.IKEMessage
+	var ikeSA *context.IKESecurityAssociation
+
+	if ikeHeader.ExchangeType == message.IKE_SA_INIT {
+		ikeMessage, err = handler.DecodeDecrypt(msg, ikeHeader, nil, message.Role_Responder)
+		if err != nil {
+			logger.IKELog.Errorf("decrypt Ike message error: %v", err)
+			return nil, nil, fmt.Errorf("decrypt Ike message error: %w", err)
+		}
+	} else {
+		localSPI := ikeHeader.ResponderSPI
+		n3iwfCtx := context.N3IWFSelf()
+		var ok bool
+		ikeSA, ok = n3iwfCtx.IKESALoad(localSPI)
+		if !ok {
+			payload := new(message.IKEPayloadContainer)
+			payload.BuildNotification(message.TypeNone, message.INVALID_IKE_SPI, nil, nil)
+			responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,
+				message.INFORMATIONAL, true, false, ikeHeader.MessageID, *payload)
+			if err := handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
+				logger.IKELog.Errorf("check Ike message: %v", err)
+				return nil, nil, fmt.Errorf("check Ike message: %w", err)
+			}
+			return nil, nil, fmt.Errorf("received an unrecognized SPI message: %d", localSPI)
+		}
+		ikeMessage, err = handler.DecodeDecrypt(msg, ikeHeader, ikeSA.IKESAKey, message.Role_Responder)
+		if err != nil {
+			logger.IKELog.Errorf("decrypt Ike message error: %v", err)
+			return nil, nil, fmt.Errorf("decrypt Ike message error: %w", err)
+		}
+	}
+	return ikeMessage, ikeSA, nil
+}
+
+// constructPacketWithESP builds an IPv4 packet with ESP payload
+func constructPacketWithESP(srcIP, dstIP *net.UDPAddr, espPacket []byte) ([]byte, error) {
+	ipLayer := &layers.IPv4{
+		SrcIP:    srcIP.IP,
+		DstIP:    dstIP.IP,
+		Version:  4,
+		TTL:      64,
+		Protocol: layers.IPProtocolESP,
+	}
+	buffer := gopacket.NewSerializeBuffer()
+	options := gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
+	if err := gopacket.SerializeLayers(buffer, options, ipLayer, gopacket.Payload(espPacket)); err != nil {
+		return nil, fmt.Errorf("error serializing layers: %v", err)
+	}
+	return buffer.Bytes(), nil
+}
+
+// handleESPPacket sends ESP packet using raw socket
+func handleESPPacket(srcIP, dstIP *net.UDPAddr, espPacket []byte) error {
+	logger.IKELog.Debugln("handle ESPPacket")
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
+	if err != nil {
+		return fmt.Errorf("socket error: %v", err)
+	}
+	defer func() {
+		if err := syscall.Close(fd); err != nil {
+			logger.IKELog.Errorf("close fd error: %v", err)
+		}
+	}()
+	ipPacket, err := constructPacketWithESP(srcIP, dstIP, espPacket)
+	if err != nil {
+		return err
+	}
+	addr := syscall.SockaddrInet4{
+		Addr: [4]byte(dstIP.IP),
+		Port: dstIP.Port,
+	}
+	if err := syscall.Sendto(fd, ipPacket, 0, &addr); err != nil {
+		return fmt.Errorf("sendto error: %v", err)
+	}
+	return nil
 }

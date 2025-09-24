@@ -7,17 +7,19 @@ package handler
 
 import (
 	"encoding/binary"
+	"fmt"
+	"math"
 	"net"
 	"time"
 
 	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/context"
-	gtp_service "github.com/omec-project/n3iwf/gtp/service"
 	"github.com/omec-project/n3iwf/logger"
-	ngap_message "github.com/omec-project/n3iwf/ngap/message"
+	"github.com/omec-project/n3iwf/ngap/message"
 	"github.com/omec-project/ngap/aper"
 	"github.com/omec-project/ngap/ngapConvert"
 	"github.com/omec-project/ngap/ngapType"
+	"github.com/wmnsk/go-gtp/gtpv1"
 )
 
 var (
@@ -25,7 +27,7 @@ var (
 	defaultSecurityCipher    bool = true
 )
 
-func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapType.NGAPPDU) {
+func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle NG Setup Response")
 
 	var amfName *ngapType.AMFName
@@ -33,17 +35,16 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapTy
 	var relativeAMFCapacity *ngapType.RelativeAMFCapacity
 	var plmnSupportList *ngapType.PLMNSupportList
 	var criticalityDiagnostics *ngapType.CriticalityDiagnostics
-
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	successfulOutcome := message.SuccessfulOutcome
+	successfulOutcome := pdu.SuccessfulOutcome
 	if successfulOutcome == nil {
 		logger.NgapLog.Errorln("successful Outcome is nil")
 		return
@@ -96,7 +97,7 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapTy
 	if len(iesCriticalityDiagnostics.List) != 0 {
 		logger.NgapLog.Debugln("sending error indication to AMF, because some mandatory IEs were not included")
 
-		cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
+		cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
 
 		procedureCode := ngapType.ProcedureCodeNGSetup
 		triggeringMessage := ngapType.TriggeringMessagePresentSuccessfulOutcome
@@ -105,12 +106,12 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapTy
 		criticalityDiagnostics := buildCriticalityDiagnostics(
 			&procedureCode, &triggeringMessage, &procedureCriticality, &iesCriticalityDiagnostics)
 
-		ngap_message.SendErrorIndicationWithSctpConn(conn, nil, nil, cause, &criticalityDiagnostics)
+		message.SendErrorIndicationWithSctpConn(conn, nil, nil, cause, &criticalityDiagnostics)
 
 		return
 	}
 
-	amfInfo := n3iwfSelf.NewN3iwfAmf(sctpAddr, conn)
+	amfInfo := n3iwfCtx.NewN3iwfAmf(sctpAddr, conn)
 
 	if amfName != nil {
 		amfInfo.AMFName = amfName
@@ -133,23 +134,22 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, message *ngapTy
 	}
 }
 
-func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, message *ngapType.NGAPPDU) {
+func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle NG Setup Failure")
 
 	var cause *ngapType.Cause
 	var timeToWait *ngapType.TimeToWait
 	var criticalityDiagnostics *ngapType.CriticalityDiagnostics
-
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	unsuccessfulOutcome := message.UnsuccessfulOutcome
+	unsuccessfulOutcome := pdu.UnsuccessfulOutcome
 	if unsuccessfulOutcome == nil {
 		logger.NgapLog.Errorln("unsuccessful Message is nil")
 		return
@@ -185,7 +185,7 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, message *ngapTyp
 		// TODO: Send error indication
 		logger.NgapLog.Debugln("sending error indication to AMF, because some mandatory IEs were not included")
 
-		cause = ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
+		cause = message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
 
 		procedureCode := ngapType.ProcedureCodeNGSetup
 		triggeringMessage := ngapType.TriggeringMessagePresentUnsuccessfullOutcome
@@ -194,14 +194,12 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, message *ngapTyp
 		criticalityDiagnostics := buildCriticalityDiagnostics(
 			&procedureCode, &triggeringMessage, &procedureCriticality, &iesCriticalityDiagnostics)
 
-		ngap_message.SendErrorIndicationWithSctpConn(conn, nil, nil, cause, &criticalityDiagnostics)
+		message.SendErrorIndicationWithSctpConn(conn, nil, nil, cause, &criticalityDiagnostics)
 
 		return
 	}
 
-	if cause != nil {
-		printAndGetCause(cause)
-	}
+	printAndGetCause(cause)
 
 	if criticalityDiagnostics != nil {
 		printCriticalityDiagnostics(criticalityDiagnostics)
@@ -228,36 +226,35 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, message *ngapTyp
 
 	if waitingTime != 0 {
 		logger.NgapLog.Infof("wait at lease  %ds to reinitialize with same AMF[%s]", waitingTime, sctpAddr)
-		n3iwfSelf.AMFReInitAvailableListStore(sctpAddr, false)
+		n3iwfCtx.AMFReInitAvailableListStore(sctpAddr, false)
 		time.AfterFunc(time.Duration(waitingTime)*time.Second, func() {
-			n3iwfSelf.AMFReInitAvailableListStore(sctpAddr, true)
-			ngap_message.SendNGSetupRequest(conn)
+			n3iwfCtx.AMFReInitAvailableListStore(sctpAddr, true)
+			message.SendNGSetupRequest(conn, n3iwfCtx)
 		})
 		return
 	}
 }
 
-func HandleNGReset(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle NG Reset")
 
 	var cause *ngapType.Cause
 	var resetType *ngapType.ResetType
-
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
 	if amf == nil {
 		logger.NgapLog.Errorln("AMF Context is nil")
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("InitiatingMessage is nil")
 		return
@@ -292,7 +289,7 @@ func HandleNGReset(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 		criticality := ngapType.CriticalityPresentReject
 		criticalityDiagnostics := buildCriticalityDiagnostics(
 			&procudureCode, &trigger, &criticality, &iesCriticalityDiagnostics)
-		ngap_message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
+		message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
 		return
 	}
 
@@ -306,7 +303,7 @@ func HandleNGReset(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 		if err := amf.RemoveAllRelatedUe(); err != nil {
 			logger.NgapLog.Errorf("remove all related UE error: %+v", err)
 		}
-		ngap_message.SendNGResetAcknowledge(amf, nil, nil)
+		message.SendNGResetAcknowledge(amf, nil, nil)
 	case ngapType.ResetTypePresentPartOfNGInterface:
 		logger.NgapLog.Debugln("ResetType Present: Part of NG Interface")
 
@@ -316,12 +313,12 @@ func HandleNGReset(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 			return
 		}
 
-		var ranUe *context.N3IWFRanUe
+		var ranUe context.RanUe
 
 		for _, ueAssociatedLogicalNGConnectionItem := range partOfNGInterface.List {
 			if ueAssociatedLogicalNGConnectionItem.RANUENGAPID != nil {
 				logger.NgapLog.Debugf("RanUeNgapID[%d]", ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
-				ranUe, _ = n3iwfSelf.RanUePoolLoad(ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
+				ranUe, _ = n3iwfCtx.RanUePoolLoad(ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
 			} else if ueAssociatedLogicalNGConnectionItem.AMFUENGAPID != nil {
 				logger.NgapLog.Debugf("AmfUeNgapID[%d]", ueAssociatedLogicalNGConnectionItem.AMFUENGAPID.Value)
 				ranUe = amf.FindUeByAmfUeNgapID(ueAssociatedLogicalNGConnectionItem.AMFUENGAPID.Value)
@@ -342,13 +339,13 @@ func HandleNGReset(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 				logger.NgapLog.Errorf("remove RanUE context error: %+v", err)
 			}
 		}
-		ngap_message.SendNGResetAcknowledge(amf, partOfNGInterface, nil)
+		message.SendNGResetAcknowledge(amf, partOfNGInterface, nil)
 	default:
 		logger.NgapLog.Warnf("invalid ResetType[%d]", resetType.Present)
 	}
 }
 
-func HandleNGResetAcknowledge(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleNGResetAcknowledge(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle NG Reset Acknowledge")
 
 	var uEAssociatedLogicalNGConnectionList *ngapType.UEAssociatedLogicalNGConnectionList
@@ -359,12 +356,12 @@ func HandleNGResetAcknowledge(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) 
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	successfulOutcome := message.SuccessfulOutcome
+	successfulOutcome := pdu.SuccessfulOutcome
 	if successfulOutcome == nil {
 		logger.NgapLog.Errorln("successfulOutcome is nil")
 		return
@@ -406,7 +403,7 @@ func HandleNGResetAcknowledge(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) 
 	}
 }
 
-func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Initial Context Setup Request")
 
 	var amfUeNgapID *ngapType.AMFUENGAPID
@@ -427,15 +424,17 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 	var emergencyFallbackIndicator *ngapType.EmergencyFallbackIndicator
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	var ranUe context.RanUe
+	var ranUeCtx *context.RanUeSharedCtx
 
-	if message == nil {
+	n3iwfCtx := context.N3IWFSelf()
+
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("Initiating Message is nil")
 		return
@@ -547,36 +546,37 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 
 	if len(iesCriticalityDiagnostics.List) > 0 {
 		logger.NgapLog.Debugln("sending unsuccessful outcome to AMF, because some mandatory IEs were not included")
-		cause := ngap_message.BuildCause(ngapType.CausePresentProtocol,
+		cause := message.BuildCause(ngapType.CausePresentProtocol,
 			ngapType.CauseProtocolPresentAbstractSyntaxErrorFalselyConstructedMessage)
 
 		criticalityDiagnostics := buildCriticalityDiagnostics(nil, nil, nil, &iesCriticalityDiagnostics)
 
 		failedListCxtFail := new(ngapType.PDUSessionResourceFailedToSetupListCxtFail)
 		for _, item := range pduSessionResourceSetupListCxtReq.List {
-			transfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+			transfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 			if err != nil {
 				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 			}
-			ngap_message.AppendPDUSessionResourceFailedToSetupListCxtfail(
+			message.AppendPDUSessionResourceFailedToSetupListCxtfail(
 				failedListCxtFail, item.PDUSessionID.Value, transfer)
 		}
 
-		ngap_message.SendInitialContextSetupFailure(ranUe, *cause, failedListCxtFail, &criticalityDiagnostics)
+		message.SendInitialContextSetupFailure(ranUe, *cause, failedListCxtFail, &criticalityDiagnostics)
 		return
 	}
 
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
-		if ranUe.AmfUeNgapId != amfUeNgapID.Value {
+		ranUeCtx = ranUe.GetSharedCtx()
+		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -588,13 +588,13 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 		return
 	}
 
-	ranUe.AmfUeNgapId = amfUeNgapID.Value
-	ranUe.RanUeNgapId = ranUeNgapID.Value
+	ranUeCtx.AmfUeNgapId = amfUeNgapID.Value
+	ranUeCtx.RanUeNgapId = ranUeNgapID.Value
 
 	if pduSessionResourceSetupListCxtReq != nil {
 		if ueAggregateMaximumBitRate == nil {
 			logger.NgapLog.Errorln("IE[UEAggregateMaximumBitRate] is nil")
-			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol,
+			cause := message.BuildCause(ngapType.CausePresentProtocol,
 				ngapType.CauseProtocolPresentAbstractSyntaxErrorFalselyConstructedMessage)
 
 			criticalityDiagnosticsIEItem := buildCriticalityDiagnosticsIEItem(ngapType.CriticalityPresentReject,
@@ -604,27 +604,28 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 
 			failedListCxtFail := new(ngapType.PDUSessionResourceFailedToSetupListCxtFail)
 			for _, item := range pduSessionResourceSetupListCxtReq.List {
-				transfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+				transfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 				if err != nil {
 					logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 				}
-				ngap_message.AppendPDUSessionResourceFailedToSetupListCxtfail(
+				message.AppendPDUSessionResourceFailedToSetupListCxtfail(
 					failedListCxtFail, item.PDUSessionID.Value, transfer)
 			}
 
-			ngap_message.SendInitialContextSetupFailure(ranUe, *cause, failedListCxtFail, &criticalityDiagnostics)
+			message.SendInitialContextSetupFailure(ranUe, *cause, failedListCxtFail, &criticalityDiagnostics)
 			return
 		}
-		ranUe.Ambr = ueAggregateMaximumBitRate
+		ranUeCtx.Ambr = ueAggregateMaximumBitRate
 
 		setupListCxtRes := new(ngapType.PDUSessionResourceSetupListCxtRes)
 		failedListCxtRes := new(ngapType.PDUSessionResourceFailedToSetupListCxtRes)
+
 		// UE temporary data for PDU session setup response
-		ranUe.TemporaryPDUSessionSetupData.SetupListCxtRes = setupListCxtRes
-		ranUe.TemporaryPDUSessionSetupData.FailedListCxtRes = failedListCxtRes
-		ranUe.TemporaryPDUSessionSetupData.Index = 0
-		ranUe.TemporaryPDUSessionSetupData.UnactivatedPDUSession = nil
-		ranUe.TemporaryPDUSessionSetupData.NGAPProcedureCode.Value = ngapType.ProcedureCodeInitialContextSetup
+		ranUeCtx.TemporaryPDUSessionSetupData.SetupListCxtRes = setupListCxtRes
+		ranUeCtx.TemporaryPDUSessionSetupData.FailedListCxtRes = failedListCxtRes
+		ranUeCtx.TemporaryPDUSessionSetupData.Index = 0
+		ranUeCtx.TemporaryPDUSessionSetupData.UnactivatedPDUSession = nil
+		ranUeCtx.TemporaryPDUSessionSetupData.NGAPProcedureCode.Value = ngapType.ProcedureCodeInitialContextSetup
 
 		for _, item := range pduSessionResourceSetupListCxtReq.List {
 			pduSessionID := item.PDUSessionID.Value
@@ -639,17 +640,17 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 					pduSessionID, err)
 			}
 
-			pduSession, err := ranUe.CreatePDUSession(pduSessionID, snssai)
+			pduSession, err := ranUeCtx.CreatePDUSession(pduSessionID, snssai)
 			if err != nil {
 				logger.NgapLog.Errorf("create PDU Session Error: %+v", err)
 
-				cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork,
+				cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
 					ngapType.CauseRadioNetworkPresentMultiplePDUSessionIDInstances)
-				unsuccessfulTransfer, buildErr := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+				unsuccessfulTransfer, buildErr := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 				if buildErr != nil {
 					logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", buildErr)
 				}
-				ngap_message.AppendPDUSessionResourceFailedToSetupListCxtRes(
+				message.AppendPDUSessionResourceFailedToSetupListCxtRes(
 					failedListCxtRes, pduSessionID, unsuccessfulTransfer)
 				continue
 			}
@@ -657,12 +658,12 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 			success, resTransfer := handlePDUSessionResourceSetupRequestTransfer(ranUe, pduSession, transfer)
 			if success {
 				// Append this PDU session to unactivated PDU session list
-				ranUe.TemporaryPDUSessionSetupData.UnactivatedPDUSession = append(
-					ranUe.TemporaryPDUSessionSetupData.UnactivatedPDUSession, pduSession)
+				ranUeCtx.TemporaryPDUSessionSetupData.UnactivatedPDUSession = append(
+					ranUeCtx.TemporaryPDUSessionSetupData.UnactivatedPDUSession, pduSession)
 			} else {
 				// Delete the pdusession store in UE conext
-				delete(ranUe.PduSessionList, pduSessionID)
-				ngap_message.AppendPDUSessionResourceFailedToSetupListCxtRes(failedListCxtRes, pduSessionID, resTransfer)
+				delete(ranUeCtx.PduSessionList, pduSessionID)
+				message.AppendPDUSessionResourceFailedToSetupListCxtRes(failedListCxtRes, pduSessionID, resTransfer)
 			}
 		}
 	}
@@ -672,42 +673,46 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 	}
 
 	if guami != nil {
-		ranUe.Guami = guami
+		ranUeCtx.Guami = guami
 	}
 
 	if allowedNSSAI != nil {
-		ranUe.AllowedNssai = allowedNSSAI
+		ranUeCtx.AllowedNssai = allowedNSSAI
 	}
 
 	if maskedIMEISV != nil {
-		ranUe.MaskedIMEISV = maskedIMEISV
+		ranUeCtx.MaskedIMEISV = maskedIMEISV
 	}
 
 	if ueRadioCapability != nil {
-		ranUe.RadioCapability = ueRadioCapability
+		ranUeCtx.RadioCapability = ueRadioCapability
 	}
 
 	if coreNetworkAssistanceInformation != nil {
-		ranUe.CoreNetworkAssistanceInformation = coreNetworkAssistanceInformation
+		ranUeCtx.CoreNetworkAssistanceInformation = coreNetworkAssistanceInformation
 	}
 
 	if indexToRFSP != nil {
-		ranUe.IndexToRfsp = indexToRFSP.Value
+		ranUeCtx.IndexToRfsp = indexToRFSP.Value
 	}
 
 	if ueSecurityCapabilities != nil {
-		ranUe.SecurityCapabilities = ueSecurityCapabilities
-	}
-
-	spi, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
-	if !ok {
-		logger.NgapLog.Errorf("SPI lookup failed for NGAP ID %d: SPI is required to send EAP Success message to UE. Critical operation cannot proceed", ranUe.RanUeNgapId)
-		return
+		ranUeCtx.SecurityCapabilities = ueSecurityCapabilities
 	}
 
 	// Send EAP Success to UE
-	n3iwfSelf.IkeServer.RcvEventCh <- context.NewSendEAPSuccessMsgEvt(spi, securityKey.Value.Bytes,
-		len(ranUe.PduSessionList))
+	switch ue := ranUe.(type) {
+	case *context.N3IWFRanUe:
+		spi, ok := n3iwfCtx.IkeSpiLoad(ranUeCtx.RanUeNgapId)
+		if !ok {
+			logger.NgapLog.Errorf("cannot get spi from ngapid: %d", ranUeCtx.RanUeNgapId)
+			return
+		}
+
+		n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAPSuccessMsgEvt(spi, securityKey.Value.Bytes, len(ranUeCtx.PduSessionList))
+	default:
+		logger.NgapLog.Errorf("unknown UE type: %T", ue)
+	}
 }
 
 // handlePDUSessionResourceSetupRequestTransfer parse and store needed information from NGAP
@@ -718,7 +723,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, message *ngapType.N
 // Return value:
 // a status value indicates whether the handling is "success" ::
 // if failed, an unsuccessfulTransfer is set, otherwise, set to nil
-func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pduSession *context.PDUSession,
+func handlePDUSessionResourceSetupRequestTransfer(ranUe context.RanUe, pduSession *context.PDUSession,
 	transfer ngapType.PDUSessionResourceSetupRequestTransfer,
 ) (bool, []byte) {
 	var pduSessionAMBR *ngapType.PDUSessionAggregateMaximumBitRate
@@ -762,10 +767,10 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 	}
 
 	if len(iesCriticalityDiagnostics.List) > 0 {
-		cause := ngap_message.BuildCause(ngapType.CausePresentProtocol,
+		cause := message.BuildCause(ngapType.CausePresentProtocol,
 			ngapType.CauseProtocolPresentAbstractSyntaxErrorFalselyConstructedMessage)
 		criticalityDiagnostics := buildCriticalityDiagnostics(nil, nil, nil, &iesCriticalityDiagnostics)
-		responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, &criticalityDiagnostics)
+		responseTransfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, &criticalityDiagnostics)
 		if err != nil {
 			logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 		}
@@ -787,8 +792,8 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 			pduSession.SecurityIntegrity = defaultSecurityIntegrity
 		default:
 			logger.NgapLog.Errorln("unknown security integrity indication")
-			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+			cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
+			responseTransfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 			if err != nil {
 				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 			}
@@ -804,8 +809,8 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 			pduSession.SecurityCipher = defaultSecurityCipher
 		default:
 			logger.NgapLog.Errorln("unknown security confidentiality indication")
-			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+			cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentSemanticError)
+			responseTransfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 			if err != nil {
 				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 			}
@@ -823,8 +828,14 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 		qosFlow.Identifier = item.QosFlowIdentifier.Value
 		qosFlow.Parameters = item.QosFlowLevelQosParameters
 		pduSession.QosFlows[item.QosFlowIdentifier.Value] = qosFlow
+
+		value := item.QosFlowIdentifier.Value
+		if value < 0 || value > math.MaxUint8 {
+			logger.NgapLog.Errorf("item.QosFlowIdentifier.Value exceeds uint8 range: %d", value)
+			return false, nil
+		}
 		// QFI List
-		pduSession.QFIList = append(pduSession.QFIList, uint8(item.QosFlowIdentifier.Value))
+		pduSession.QFIList = append(pduSession.QFIList, uint8(value))
 	}
 
 	// Setup GTP tunnel with UPF
@@ -832,92 +843,63 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe *context.N3IWFRanUe, pdu
 	upfIPv4, _ := ngapConvert.IPAddressToString(ulNGUUPTNLInformation.GTPTunnel.TransportLayerAddress)
 	if upfIPv4 == "" {
 		logger.NgapLog.Errorln("cannot parse 'PDU session resource setup request transfer' message 'UL NG-U UP TNL Information'")
-		cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
-		responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+		cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
+		responseTransfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 		if err != nil {
 			logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
 		}
 		return false, responseTransfer
 	}
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
 	gtpConnection := &context.GTPConnectionInfo{
 		UPFIPAddr:    upfIPv4,
 		OutgoingTEID: binary.BigEndian.Uint32(ulNGUUPTNLInformation.GTPTunnel.GTPTEID.Value),
 	}
 
-	if userPlaneConnection, ok := n3iwfSelf.GTPConnectionWithUPFLoad(upfIPv4); ok {
-		// UPF UDP address
-		upfUDPAddr, err := net.ResolveUDPAddr("udp", upfIPv4+":2152")
+	// UPF UDP address
+	upfAddr := upfIPv4 + gtpv1.GTPUPort
+	upfUDPAddr, err := net.ResolveUDPAddr("udp", upfAddr)
+	if err != nil {
+		var responseTransfer []byte
+
+		logger.NgapLog.Errorf("resolve UPF addr [%s] failed: %v", upfAddr, err)
+		cause := message.BuildCause(ngapType.CausePresentTransport,
+			ngapType.CauseTransportPresentTransportResourceUnavailable)
+		responseTransfer, err = message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 		if err != nil {
-			logger.NgapLog.Errorf("resolve UDP address failed: %+v", err)
-			cause := ngap_message.BuildCause(ngapType.CausePresentTransport,
-				ngapType.CauseTransportPresentTransportResourceUnavailable)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
-			if err != nil {
-				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
-			}
-			return false, responseTransfer
+			logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer error: %+v", err)
 		}
-
-		// UE TEID
-		ueTEID := n3iwfSelf.NewTEID(ranUe)
-		if ueTEID == 0 {
-			logger.NgapLog.Errorln("invalid TEID (0)")
-			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentUnspecified)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
-			if err != nil {
-				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
-			}
-			return false, responseTransfer
-		}
-
-		// Set UE associated GTP connection
-		gtpConnection.UPFUDPAddr = upfUDPAddr
-		gtpConnection.IncomingTEID = ueTEID
-		gtpConnection.UserPlaneConnection = userPlaneConnection
-	} else {
-		// Setup GTP connection with UPF
-		userPlaneConnection, upfUDPAddr, err := gtp_service.SetupGTPTunnelWithUPF(upfIPv4)
-		if err != nil {
-			logger.NgapLog.Errorf("Setup GTP connection with UPF failed: %+v", err)
-			cause := ngap_message.BuildCause(ngapType.CausePresentTransport,
-				ngapType.CauseTransportPresentTransportResourceUnavailable)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
-			if err != nil {
-				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
-			}
-			return false, responseTransfer
-		}
-
-		// UE TEID
-		ueTEID := n3iwfSelf.NewTEID(ranUe)
-		if ueTEID == 0 {
-			logger.NgapLog.Errorln("invalid TEID (0)")
-			cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentUnspecified)
-			responseTransfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
-			if err != nil {
-				logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", err)
-			}
-			return false, responseTransfer
-		}
-
-		// Setup GTP connection with UPF
-		gtpConnection.UPFUDPAddr = upfUDPAddr
-		gtpConnection.IncomingTEID = ueTEID
-		gtpConnection.UserPlaneConnection = userPlaneConnection
-
-		// Store GTP connection with UPF into N3IWF context
-		n3iwfSelf.GTPConnectionWithUPFStore(upfIPv4, userPlaneConnection)
+		return false, responseTransfer
 	}
+
+	// UE TEID
+	ueTEID := n3iwfCtx.NewTEID(ranUe)
+	if ueTEID == 0 {
+		var responseTransfer []byte
+
+		logger.NgapLog.Error("invalid TEID (0)")
+		cause := message.BuildCause(
+			ngapType.CausePresentProtocol,
+			ngapType.CauseProtocolPresentUnspecified)
+		responseTransfer, err = message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+		if err != nil {
+			logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer error: %+v", err)
+		}
+		return false, responseTransfer
+	}
+
+	// Setup GTP connection with UPF
+	gtpConnection.UPFUDPAddr = upfUDPAddr
+	gtpConnection.IncomingTEID = ueTEID
 
 	pduSession.GTPConnection = gtpConnection
 
 	return true, nil
 }
 
-func HandleUEContextModificationRequest(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle UE Context Modification Request")
 
 	if amf == nil {
@@ -934,15 +916,17 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, message *ngapType
 	var indexToRFSP *ngapType.IndexToRFSP
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	var ranUe context.RanUe
+	var ranUeCtx *context.RanUeSharedCtx
 
-	if message == nil {
+	n3iwfCtx := context.N3IWFSelf()
+
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1006,14 +990,15 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, message *ngapType
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
-		if ranUe.AmfUeNgapId != amfUeNgapID.Value {
+		ranUeCtx = ranUe.GetSharedCtx()
+		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -1022,37 +1007,36 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, message *ngapType
 
 	if newAmfUeNgapID != nil {
 		logger.NgapLog.Debugf("new AmfUeNgapID[%d]", newAmfUeNgapID.Value)
-		ranUe.AmfUeNgapId = newAmfUeNgapID.Value
+		ranUeCtx.AmfUeNgapId = newAmfUeNgapID.Value
 	}
 
 	if ueAggregateMaximumBitRate != nil {
-		ranUe.Ambr = ueAggregateMaximumBitRate
+		ranUeCtx.Ambr = ueAggregateMaximumBitRate
 		// TODO: use the received UE Aggregate Maximum Bit Rate for all non-GBR QoS flows
 	}
 
 	if ueSecurityCapabilities != nil {
-		ranUe.SecurityCapabilities = ueSecurityCapabilities
+		ranUeCtx.SecurityCapabilities = ueSecurityCapabilities
 	}
 
 	// TODO: use new security key to update security context
 
 	if indexToRFSP != nil {
-		ranUe.IndexToRfsp = indexToRFSP.Value
+		ranUeCtx.IndexToRfsp = indexToRFSP.Value
 	}
 
-	ngap_message.SendUEContextModificationResponse(ranUe, nil)
+	message.SendUEContextModificationResponse(ranUe, nil)
 
-	spi, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
+	spi, ok := n3iwfCtx.IkeSpiLoad(ranUeCtx.RanUeNgapId)
 	if !ok {
-		logger.NgapLog.Errorf("cannot get spi from ngapid: %d", ranUe.RanUeNgapId)
+		logger.NgapLog.Errorf("cannot get spi from ngapid: %d", ranUeCtx.RanUeNgapId)
 		return
 	}
 
-	n3iwfSelf.IkeServer.RcvEventCh <- context.NewIKEContextUpdateEvt(spi,
-		securityKey.Value.Bytes) // Kn3iwf
+	n3iwfCtx.IkeServer.RcvEventCh <- context.NewIKEContextUpdateEvt(spi, securityKey.Value.Bytes) // Kn3iwf
 }
 
-func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle UE Context Release Command")
 
 	if amf == nil {
@@ -1063,16 +1047,16 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, message *ngapType.NGAP
 	var ueNgapIDs *ngapType.UENGAPIDs
 	var cause *ngapType.Cause
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
+	var ranUe context.RanUe
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1109,7 +1093,7 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, message *ngapType.NGAP
 	switch ueNgapIDs.Present {
 	case ngapType.UENGAPIDsPresentUENGAPIDPair:
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ueNgapIDs.UENGAPIDPair.RANUENGAPID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ueNgapIDs.UENGAPIDPair.RANUENGAPID.Value)
 		if !ok {
 			ranUe = amf.FindUeByAmfUeNgapID(ueNgapIDs.UENGAPIDPair.AMFUENGAPID.Value)
 		}
@@ -1126,33 +1110,44 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, message *ngapType.NGAP
 		return
 	}
 
-	if cause != nil {
-		printAndGetCause(cause)
+	printAndGetCause(cause)
+
+	ranUe.GetSharedCtx().UeCtxRelState = context.UeCtxRelStateOngoing
+
+	message.SendUEContextReleaseComplete(ranUe, nil)
+
+	err := releaseIkeUeAndRanUe(ranUe)
+	if err != nil {
+		logger.NgapLog.Warnf("HandleUEContextReleaseCommand(): %v", err)
+	}
+}
+
+func releaseIkeUeAndRanUe(ranUe context.RanUe) error {
+	n3iwfCtx := context.N3IWFSelf()
+	ranUeNgapID := ranUe.GetSharedCtx().RanUeNgapId
+
+	if localSPI, ok := n3iwfCtx.IkeSpiLoad(ranUeNgapID); ok {
+		n3iwfCtx.IkeServer.RcvEventCh <- context.NewIKEDeleteRequestEvt(localSPI)
 	}
 
-	localSPI, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
-	if !ok {
-		logger.NgapLog.Errorf("cannot get SPI from RanUeNgapID: %+v", ranUe.RanUeNgapId)
-		return
+	if err := ranUe.Remove(); err != nil {
+		return fmt.Errorf("releaseIkeUeAndRanUe: failed to remove RanUeNgapId[%016x]: %w", ranUeNgapID, err)
 	}
-
-	n3iwfSelf.IkeServer.RcvEventCh <- context.NewIKEDeleteRequestEvt(localSPI)
-	// TODO: release pdu session and gtp info for ue
+	return nil
 }
 
 func encapNasMsgToEnvelope(nasPDU *ngapType.NASPDU) []byte {
-	// According to TS 24.502 8.2.4,
-	// in order to transport a NAS message over the non-3GPP access between the UE and the N3IWF,
-	// the NAS message shall be framed in a NAS message envelope as defined in subclause 9.4.
-	// According to TS 24.502 9.4,
-	// a NAS message envelope = Length | NAS Message
+	// According to TS 24.502 8.2.4, in order to transport a NAS message over the
+	// non-3GPP access between the UE and the N3IWF, the NAS message shall be
+	// framed in a NAS message envelope as defined in subclause 9.4.
+	// According to TS 24.502 9.4, a NAS message envelope = Length | NAS Message
 	nasEnv := make([]byte, 2)
 	binary.BigEndian.PutUint16(nasEnv, uint16(len(nasPDU.Value)))
 	nasEnv = append(nasEnv, nasPDU.Value...)
 	return nasEnv
 }
 
-func HandleDownlinkNASTransport(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Downlink NAS Transport")
 
 	if amf == nil {
@@ -1168,16 +1163,16 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, message *ngapType.NGAPPDU
 	var ueAggregateMaximumBitRate *ngapType.UEAggregateMaximumBitRate
 	var allowedNSSAI *ngapType.AllowedNSSAI
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
+	var ranUe context.RanUe
 
-	var ranUe *context.N3IWFRanUe
-	var n3iwfSelf *context.N3IWFContext = context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1239,19 +1234,20 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, message *ngapType.NGAPPDU
 
 	if ranUeNgapID != nil {
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
 		if !ok {
 			logger.NgapLog.Warnf("no UE Context[RanUeNgapID:%d]", ranUeNgapID.Value)
 			return
 		}
 	}
+	ranUeCtx := ranUe.GetSharedCtx()
 
 	if amfUeNgapID != nil {
-		if ranUe.AmfUeNgapId == context.AmfUeNgapIdUnspecified {
+		if ranUeCtx.AmfUeNgapId == context.AmfUeNgapIdUnspecified {
 			logger.NgapLog.Debugln("create new logical UE-associated NG-connection")
-			ranUe.AmfUeNgapId = amfUeNgapID.Value
+			ranUeCtx.AmfUeNgapId = amfUeNgapID.Value
 		} else {
-			if ranUe.AmfUeNgapId != amfUeNgapID.Value {
+			if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
 				logger.NgapLog.Warnln("AMFUENGAPID unmatched")
 				return
 			}
@@ -1263,51 +1259,53 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, message *ngapType.NGAPPDU
 	}
 
 	if indexToRFSP != nil {
-		ranUe.IndexToRfsp = indexToRFSP.Value
+		ranUeCtx.IndexToRfsp = indexToRFSP.Value
 	}
 
 	if ueAggregateMaximumBitRate != nil {
-		ranUe.Ambr = ueAggregateMaximumBitRate
+		ranUeCtx.Ambr = ueAggregateMaximumBitRate
 	}
 
 	if allowedNSSAI != nil {
-		ranUe.AllowedNssai = allowedNSSAI
+		ranUeCtx.AllowedNssai = allowedNSSAI
 	}
 
 	if nasPDU != nil {
-		// TODO: Send NAS PDU to UE
-
-		// Send EAP5G NAS to UE
-		spi, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
-		if !ok {
-			logger.NgapLog.Errorf("cannot get SPI from RanUeNGAPId: %d", ranUe.RanUeNgapId)
-			return
-		}
-
-		if !ranUe.IsNASTCPConnEstablished {
-			n3iwfSelf.IkeServer.RcvEventCh <- context.NewSendEAPNASMsgEvt(spi,
-				[]byte(nasPDU.Value))
-		} else {
-			// Using a "NAS message envelope" to transport a NAS message
-			// over the non-3GPP access between the UE and the N3IWF
-			nasEnv := encapNasMsgToEnvelope(nasPDU)
-
-			if ranUe.IsNASTCPConnEstablishedComplete {
-				// Send to UE
-				if n, err := ranUe.TCPConnection.Write(nasEnv); err != nil {
-					logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %+v", err)
-				} else {
-					logger.NgapLog.Debugln("forward NWu <- N2")
-					logger.NgapLog.Debugf("wrote %d bytes", n)
-				}
-			} else {
-				ranUe.TemporaryCachedNASMessage = nasEnv
+		switch ue := ranUe.(type) {
+		case *context.N3IWFRanUe:
+			// Send EAP5G NAS to UE
+			spi, ok := n3iwfCtx.IkeSpiLoad(ue.RanUeNgapId)
+			if !ok {
+				logger.NgapLog.Errorf("cannot get SPI from RanUeNGAPId: %d", ue.RanUeNgapId)
+				return
 			}
+
+			if !ue.IsNASTCPConnEstablished {
+				n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAPNASMsgEvt(spi, []byte(nasPDU.Value))
+			} else {
+				// Using a "NAS message envelope" to transport a NAS message
+				// over the non-3GPP access between the UE and the N3IWF
+				nasEnv := encapNasMsgToEnvelope(nasPDU)
+
+				if ue.IsNASTCPConnEstablishedComplete {
+					// Send to UE
+					if n, err := ue.TCPConnection.Write(nasEnv); err != nil {
+						logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %v", err)
+					} else {
+						logger.NgapLog.Debugln("forward NWu <- N2")
+						logger.NgapLog.Debugf("wrote %d bytes", n)
+					}
+				} else {
+					ue.TemporaryCachedNASMessage = nasEnv
+				}
+			}
+		default:
+			logger.NgapLog.Errorf("unknown UE type: %T", ue)
 		}
 	}
 }
 
-func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle PDU Session Resource Setup Request")
 
 	if amf == nil {
@@ -1321,16 +1319,17 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 	var pduSessionResourceSetupListSUReq *ngapType.PDUSessionResourceSetupListSUReq
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 	var pduSessionEstablishmentAccept *ngapType.NASPDU
+	var ranUe context.RanUe
+	var ranUeCtx *context.RanUeSharedCtx
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1386,14 +1385,15 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
-		if ranUe.AmfUeNgapId != amfUeNgapID.Value {
+		ranUeCtx = ranUe.GetSharedCtx()
+		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -1401,23 +1401,28 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 	}
 
 	if nasPDU != nil {
-		// TODO: Send NAS to UE
-		if ranUe.TCPConnection == nil {
-			logger.NgapLog.Errorln("no IPSec NAS signalling SA for this UE")
+		n3iwfUe, ok := ranUe.(*context.N3IWFRanUe)
+		if !ok {
+			logger.NgapLog.Errorln("type assertion: RanUe -> N3iwfRanUe failed")
 			return
 		}
+		if n3iwfUe.TCPConnection == nil {
+			logger.NgapLog.Error("no IPSec NAS signalling SA for this UE")
+			return
+		}
+
 		// Using a "NAS message envelope" to transport a NAS message
 		// over the non-3GPP access between the UE and the N3IWF
 		nasEnv := encapNasMsgToEnvelope(nasPDU)
-		if n, err := ranUe.TCPConnection.Write(nasEnv); err != nil {
+		n, err := n3iwfUe.TCPConnection.Write(nasEnv)
+		if err != nil {
 			logger.NgapLog.Errorf("send NAS to UE failed: %+v", err)
 			return
-		} else {
-			logger.NgapLog.Debugf("wrote %d bytes", n)
 		}
+		logger.NgapLog.Debugf("wrote %d bytes", n)
 	}
 
-	tempPDUSessionSetupData := ranUe.TemporaryPDUSessionSetupData
+	tempPDUSessionSetupData := ranUeCtx.TemporaryPDUSessionSetupData
 	tempPDUSessionSetupData.NGAPProcedureCode.Value = ngapType.ProcedureCodeInitialContextSetup
 
 	if pduSessionResourceSetupListSUReq != nil {
@@ -1441,17 +1446,17 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 					pduSessionID, err)
 			}
 
-			pduSession, err := ranUe.CreatePDUSession(pduSessionID, snssai)
+			pduSession, err := ranUeCtx.CreatePDUSession(pduSessionID, snssai)
 			if err != nil {
 				logger.NgapLog.Errorf("create PDU Session Error: %+v", err)
 
-				cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork,
+				cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
 					ngapType.CauseRadioNetworkPresentMultiplePDUSessionIDInstances)
-				unsuccessfulTransfer, buildErr := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
+				unsuccessfulTransfer, buildErr := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(*cause, nil)
 				if buildErr != nil {
 					logger.NgapLog.Errorf("build PDUSessionResourceSetupUnsuccessfulTransfer Error: %+v", buildErr)
 				}
-				ngap_message.AppendPDUSessionResourceFailedToSetupListSURes(failedListSURes, pduSessionID, unsuccessfulTransfer)
+				message.AppendPDUSessionResourceFailedToSetupListSURes(failedListSURes, pduSessionID, unsuccessfulTransfer)
 				continue
 			}
 
@@ -1461,32 +1466,34 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, message *ngapTy
 				tempPDUSessionSetupData.UnactivatedPDUSession = append(tempPDUSessionSetupData.UnactivatedPDUSession, pduSession)
 			} else {
 				// Delete the pdusession store in UE conext
-				delete(ranUe.PduSessionList, pduSessionID)
-				ngap_message.AppendPDUSessionResourceFailedToSetupListSURes(failedListSURes, pduSessionID, resTransfer)
+				delete(ranUeCtx.PduSessionList, pduSessionID)
+				message.AppendPDUSessionResourceFailedToSetupListSURes(failedListSURes, pduSessionID, resTransfer)
 			}
 		}
 	}
 
-	if tempPDUSessionSetupData != nil {
-		spi, ok := n3iwfSelf.IkeSpiLoad(ranUe.RanUeNgapId)
-		if !ok {
-			logger.NgapLog.Errorf("cannot get SPI from ranNgapID: %+v", ranUeNgapID)
-			return
+	if tempPDUSessionSetupData != nil && len(tempPDUSessionSetupData.UnactivatedPDUSession) != 0 {
+		switch ue := ranUe.(type) {
+		case *context.N3IWFRanUe:
+			spi, ok := n3iwfCtx.IkeSpiLoad(ue.RanUeNgapId)
+			if !ok {
+				logger.NgapLog.Errorf("cannot get SPI from ranNgapID: %+v", ranUeNgapID)
+				return
+			}
+			n3iwfCtx.IkeServer.RcvEventCh <- context.NewCreatePDUSessionEvt(spi, len(ue.PduSessionList), ue.TemporaryPDUSessionSetupData)
+
+			// TS 23.501 4.12.5 Requested PDU Session Establishment via Untrusted non-3GPP Access
+			// After all IPsec Child SAs are established, the N3IWF shall forward to UE via the signalling IPsec SA
+			// the PDU Session Establishment Accept message
+			nasEnv := encapNasMsgToEnvelope(pduSessionEstablishmentAccept)
+
+			// Cache the pduSessionEstablishmentAccept and forward to the UE after all CREATE_CHILD_SAs finish
+			ue.TemporaryCachedNASMessage = nasEnv
 		}
-		n3iwfSelf.IkeServer.RcvEventCh <- context.NewCreatePDUSessionEvt(spi,
-			len(ranUe.PduSessionList), ranUe.TemporaryPDUSessionSetupData)
-
-		// TS 23.501 4.12.5 Requested PDU Session Establishment via Untrusted non-3GPP Access
-		// After all IPsec Child SAs are established, the N3IWF shall forward to UE via the signalling IPsec SA
-		// the PDU Session Establishment Accept message
-		nasEnv := encapNasMsgToEnvelope(pduSessionEstablishmentAccept)
-
-		// Cache the pduSessionEstablishmentAccept and forward to the UE after all CREATE_CHILD_SAs finish
-		ranUe.TemporaryCachedNASMessage = nasEnv
 	}
 }
 
-func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle PDU Session Resource Modify Request")
 
 	if amf == nil {
@@ -1498,16 +1505,17 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, message *ngapT
 	var ranUeNgapID *ngapType.RANUENGAPID
 	var pduSessionResourceModifyListModReq *ngapType.PDUSessionResourceModifyListModReq
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
+	var ranUe context.RanUe
+	var ranUeCtx *context.RanUeSharedCtx
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1553,21 +1561,22 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, message *ngapT
 
 	if len(iesCriticalityDiagnostics.List) > 0 {
 		criticalityDiagnostics := buildCriticalityDiagnostics(nil, nil, nil, &iesCriticalityDiagnostics)
-		ngap_message.SendPDUSessionResourceModifyResponse(nil, nil, nil, &criticalityDiagnostics)
+		message.SendPDUSessionResourceModifyResponse(nil, nil, nil, &criticalityDiagnostics)
 		return
 	}
 
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and send error indication
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
-		if ranUe.AmfUeNgapId != amfUeNgapID.Value {
+		ranUeCtx = ranUe.GetSharedCtx()
+		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
 			// TODO: build cause and send error indication
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -1589,28 +1598,28 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, message *ngapT
 					"[PDUSessionID: %d] PDUSessionResourceModifyRequestTransfer Decode Error: %+v", pduSessionID, err)
 			}
 
-			if pduSession = ranUe.FindPDUSession(pduSessionID); pduSession == nil {
+			if pduSession = ranUeCtx.FindPDUSession(pduSessionID); pduSession == nil {
 				logger.NgapLog.Errorf("[PDUSessionID: %d] Unknown PDU session ID", pduSessionID)
 
-				cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownPDUSessionID)
-				unsuccessfulTransfer, buildErr := ngap_message.BuildPDUSessionResourceModifyUnsuccessfulTransfer(*cause, nil)
+				cause := message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownPDUSessionID)
+				unsuccessfulTransfer, buildErr := message.BuildPDUSessionResourceModifyUnsuccessfulTransfer(*cause, nil)
 				if buildErr != nil {
 					logger.NgapLog.Errorf("build PDUSessionResourceModifyUnsuccessfulTransfer Error: %+v", buildErr)
 				}
-				ngap_message.AppendPDUSessionResourceFailedToModifyListModRes(failedListModRes, pduSessionID, unsuccessfulTransfer)
+				message.AppendPDUSessionResourceFailedToModifyListModRes(failedListModRes, pduSessionID, unsuccessfulTransfer)
 				continue
 			}
 
 			success, resTransfer := handlePDUSessionResourceModifyRequestTransfer(pduSession, transfer)
 			if success {
-				ngap_message.AppendPDUSessionResourceModifyListModRes(responseList, pduSessionID, resTransfer)
+				message.AppendPDUSessionResourceModifyListModRes(responseList, pduSessionID, resTransfer)
 			} else {
-				ngap_message.AppendPDUSessionResourceFailedToModifyListModRes(failedListModRes, pduSessionID, resTransfer)
+				message.AppendPDUSessionResourceFailedToModifyListModRes(failedListModRes, pduSessionID, resTransfer)
 			}
 		}
 	}
 
-	ngap_message.SendPDUSessionResourceModifyResponse(ranUe, responseList, failedListModRes, nil)
+	message.SendPDUSessionResourceModifyResponse(ranUe, responseList, failedListModRes, nil)
 }
 
 func handlePDUSessionResourceModifyRequestTransfer(
@@ -1677,9 +1686,9 @@ func handlePDUSessionResourceModifyRequestTransfer(
 
 	if len(iesCriticalityDiagnostics.List) != 0 {
 		// build unsuccessful transfer
-		cause := ngap_message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
+		cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
 		criticalityDiagnostics := buildCriticalityDiagnostics(nil, nil, nil, &iesCriticalityDiagnostics)
-		unsuccessfulTransfer, err := ngap_message.BuildPDUSessionResourceModifyUnsuccessfulTransfer(*cause, &criticalityDiagnostics)
+		unsuccessfulTransfer, err := message.BuildPDUSessionResourceModifyUnsuccessfulTransfer(*cause, &criticalityDiagnostics)
 		if err != nil {
 			logger.NgapLog.Errorf("build PDUSessionResourceModifyUnsuccessfulTransfer Error: %+v", err)
 		}
@@ -1715,7 +1724,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 			} else {
 				logger.NgapLog.Errorf("requested Qos flow not found, QosFlowID: %d", updateItem.QosFlowIdentifier)
 
-				cause := ngap_message.BuildCause(
+				cause := message.BuildCause(
 					ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnkownQosFlowID)
 
 				item := ngapType.QosFlowWithCauseItem{
@@ -1754,7 +1763,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 	// TODO: forward AdditionalULNGUUPTNLInfomation to S-NG-RAN
 	// }
 
-	encodeData, err := ngap_message.BuildPDUSessionResourceModifyResponseTransfer(
+	encodeData, err := message.BuildPDUSessionResourceModifyResponseTransfer(
 		resULNGUUPTNLInfo, resDLNGUUPTNLInfo, &resQosFlowAddOrModifyRequestList, &resQosFlowFailedToAddOrModifyList)
 	if err != nil {
 		logger.NgapLog.Errorf("build PDUSessionResourceModifyTransfer Error: %+v", err)
@@ -1766,7 +1775,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 	return success, responseTransfer
 }
 
-func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle PDU Session Resource Modify Confirm")
 
 	var aMFUENGAPID *ngapType.AMFUENGAPID
@@ -1774,20 +1783,20 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapT
 	var pDUSessionResourceModifyListModCfm *ngapType.PDUSessionResourceModifyListModCfm
 	var pDUSessionResourceFailedToModifyListModCfm *ngapType.PDUSessionResourceFailedToModifyListModCfm
 	var criticalityDiagnostics *ngapType.CriticalityDiagnostics
-
-	// var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
+	var ranUe context.RanUe
+	var ranUeCtx *context.RanUeSharedCtx
 
 	if amf == nil {
 		logger.NgapLog.Errorln("AMF Context is nil")
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	successfulOutcome := message.SuccessfulOutcome
+	successfulOutcome := pdu.SuccessfulOutcome
 	if successfulOutcome == nil {
 		logger.NgapLog.Errorln("successful Outcome is nil")
 		return
@@ -1819,22 +1828,23 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapT
 		}
 	}
 
-	var ranUe *context.N3IWFRanUe
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
 	if rANUENGAPID != nil {
 		var ok bool
-		ranUe, ok = n3iwfSelf.RanUePoolLoad(rANUENGAPID.Value)
+		ranUe, ok = n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
 			return
 		}
+		ranUeCtx = ranUe.GetSharedCtx()
 	}
+
 	if aMFUENGAPID != nil {
 		if ranUe != nil {
-			if ranUe.AmfUeNgapId != aMFUENGAPID.Value {
+			if ranUeCtx.AmfUeNgapId != aMFUENGAPID.Value {
 				logger.NgapLog.Errorf("inconsistent remote UE NGAP ID, AMFUENGAPID: %d, RanUe.AmfUeNgapId: %d",
-					aMFUENGAPID.Value, ranUe.AmfUeNgapId)
+					aMFUENGAPID.Value, ranUeCtx.AmfUeNgapId)
 				return
 			}
 		} else {
@@ -1845,17 +1855,19 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapT
 			}
 		}
 	}
+
 	if ranUe == nil {
 		logger.NgapLog.Warnln("RANUENGAPID and AMFUENGAPID are both nil")
 		return
 	}
+
 	if pDUSessionResourceModifyListModCfm != nil {
 		for _, item := range pDUSessionResourceModifyListModCfm.List {
 			pduSessionId := item.PDUSessionID.Value
 			logger.NgapLog.Debugf("PDU Session Id[%d] in Pdu Session Resource Modification Confrim List", pduSessionId)
-			sess, exist := ranUe.PduSessionList[pduSessionId]
+			sess, exist := ranUeCtx.PduSessionList[pduSessionId]
 			if !exist {
-				logger.NgapLog.Warnf("PDU Session Id[%d] is not exist in Ue[ranUeNgapId:%d]", pduSessionId, ranUe.RanUeNgapId)
+				logger.NgapLog.Warnf("PDU Session Id[%d] is not exist in Ue[ranUeNgapId:%d]", pduSessionId, ranUeCtx.RanUeNgapId)
 			} else {
 				transfer := ngapType.PDUSessionResourceModifyConfirmTransfer{}
 				err := aper.UnmarshalWithParams(item.PDUSessionResourceModifyConfirmTransfer, &transfer, "valueExt")
@@ -1884,7 +1896,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapT
 				printAndGetCause(&transfer.Cause)
 			}
 			logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Modify Indication Unsuccessful", pduSessionId)
-			delete(ranUe.PduSessionList, pduSessionId)
+			delete(ranUeCtx.PduSessionList, pduSessionId)
 		}
 	}
 
@@ -1893,7 +1905,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, message *ngapT
 	}
 }
 
-func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle PDU Session Resource Release Command")
 	var aMFUENGAPID *ngapType.AMFUENGAPID
 	var rANUENGAPID *ngapType.RANUENGAPID
@@ -1908,12 +1920,12 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, message *ngap
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("initiating Message is nil")
 		return
@@ -1969,25 +1981,26 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, message *ngap
 		criticality := ngapType.CriticalityPresentReject
 		criticalityDiagnostics := buildCriticalityDiagnostics(
 			&procudureCode, &trigger, &criticality, &iesCriticalityDiagnostics)
-		ngap_message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
+		message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
 		return
 	}
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(rANUENGAPID.Value)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
 	if !ok {
 		logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
-		cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
-		ngap_message.SendErrorIndication(amf, nil, nil, cause, nil)
+		cause := message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
+		message.SendErrorIndication(amf, nil, nil, cause, nil)
 		return
 	}
+	ranUeCtx := ranUe.GetSharedCtx()
 
-	if ranUe.AmfUeNgapId != aMFUENGAPID.Value {
+	if ranUeCtx.AmfUeNgapId != aMFUENGAPID.Value {
 		logger.NgapLog.Errorf("inconsistent remote UE NGAP ID, AMFUENGAPID: %d, RanUe.AmfUeNgapId: %d",
-			aMFUENGAPID.Value, ranUe.AmfUeNgapId)
-		cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork,
+			aMFUENGAPID.Value, ranUeCtx.AmfUeNgapId)
+		cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
 			ngapType.CauseRadioNetworkPresentInconsistentRemoteUENGAPID)
-		ngap_message.SendErrorIndication(amf, nil, &rANUENGAPID.Value, cause, nil)
+		message.SendErrorIndication(amf, nil, &rANUENGAPID.Value, cause, nil)
 		return
 	}
 
@@ -2007,7 +2020,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, message *ngap
 			printAndGetCause(&transfer.Cause)
 		}
 		logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Release Command", pduSessionId)
-		delete(ranUe.PduSessionList, pduSessionId)
+		delete(ranUeCtx.PduSessionList, pduSessionId)
 
 		// response list
 		releaseItem := ngapType.PDUSessionResourceReleasedItemRelRes{
@@ -2019,22 +2032,22 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, message *ngap
 		releaseIdList = append(releaseIdList, pduSessionId)
 	}
 
-	localSPI, ok := n3iwfSelf.IkeSpiLoad(rANUENGAPID.Value)
+	localSPI, ok := n3iwfCtx.IkeSpiLoad(rANUENGAPID.Value)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get SPI from RanUeNgapID: %+v", rANUENGAPID.Value)
 		return
 	}
+	ranUe.GetSharedCtx().PduSessResRelState = context.PduSessResRelStateOngoing
 
-	n3iwfSelf.IkeServer.RcvEventCh <- context.NewSendChildSADeleteRequestEvt(localSPI,
-		releaseIdList)
+	n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendChildSADeleteRequestEvt(localSPI, releaseIdList)
 
-	ranUe.PduSessionReleaseList = releaseList
+	ranUeCtx.PduSessionReleaseList = releaseList
 	// if nASPDU != nil {
 	// TODO: Send NAS to UE
 	// }
 }
 
-func HandleErrorIndication(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleErrorIndication(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Error Indication")
 
 	var aMFUENGAPID *ngapType.AMFUENGAPID
@@ -2046,11 +2059,11 @@ func HandleErrorIndication(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 		logger.NgapLog.Errorln("corresponding AMF context not found")
 		return
 	}
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("InitiatingMessage is nil")
 		return
@@ -2094,23 +2107,37 @@ func HandleErrorIndication(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 		logger.NgapLog.Warnf("RAN UE NGAP ID is defined, value = %d", rANUENGAPID.Value)
 	}
 
-	if cause != nil {
-		printAndGetCause(cause)
-	}
+	printAndGetCause(cause)
 
 	if criticalityDiagnostics != nil {
 		printCriticalityDiagnostics(criticalityDiagnostics)
 	}
 
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
+	if ok {
+		err := releaseIkeUeAndRanUe(ranUe)
+		if err != nil {
+			logger.NgapLog.Warnf("handle error indication: %v", err)
+		}
+	}
+
+	ranUe = amf.FindUeByAmfUeNgapID(aMFUENGAPID.Value)
+	if ranUe != nil {
+		err := releaseIkeUeAndRanUe(ranUe)
+		if err != nil {
+			logger.NgapLog.Warnf("handle error indication: %v", err)
+		}
+	}
+
 	// TODO: handle error based on cause/criticalityDiagnostics
 }
 
-func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle UE Radio Capability Check Request")
 	var aMFUENGAPID *ngapType.AMFUENGAPID
 	var rANUENGAPID *ngapType.RANUENGAPID
 	var uERadioCapability *ngapType.UERadioCapability
-
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 
 	if amf == nil {
@@ -2118,12 +2145,12 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, message *ngapTyp
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("InitiatingMessage is nil")
 		return
@@ -2167,23 +2194,23 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, message *ngapTyp
 		criticality := ngapType.CriticalityPresentReject
 		criticalityDiagnostics := buildCriticalityDiagnostics(
 			&procudureCode, &trigger, &criticality, &iesCriticalityDiagnostics)
-		ngap_message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
+		message.SendErrorIndication(amf, nil, nil, nil, &criticalityDiagnostics)
 		return
 	}
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(rANUENGAPID.Value)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
 	if !ok {
 		logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
-		cause := ngap_message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
-		ngap_message.SendErrorIndication(amf, nil, nil, cause, nil)
+		cause := message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
+		message.SendErrorIndication(amf, nil, nil, cause, nil)
 		return
 	}
 
-	ranUe.RadioCapability = uERadioCapability
+	ranUe.GetSharedCtx().RadioCapability = uERadioCapability
 }
 
-func HandleAMFConfigurationUpdate(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleAMFConfigurationUpdate(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle AMF Configuration Updaet")
 
 	var aMFName *ngapType.AMFName
@@ -2199,12 +2226,12 @@ func HandleAMFConfigurationUpdate(amf *context.N3IWFAMF, message *ngapType.NGAPP
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("InitiatingMessage is nil")
 		return
@@ -2300,10 +2327,10 @@ func HandleAMFConfigurationUpdate(amf *context.N3IWFAMF, message *ngapType.NGAPP
 			List: successList,
 		}
 	}
-	ngap_message.SendAMFConfigurationUpdateAcknowledge(amf, setupList, nil, nil)
+	message.SendAMFConfigurationUpdateAcknowledge(amf, setupList, nil, nil)
 }
 
-func HandleRANConfigurationUpdateAcknowledge(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleRANConfigurationUpdateAcknowledge(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle RAN Configuration Update Acknowledge")
 
 	var criticalityDiagnostics *ngapType.CriticalityDiagnostics
@@ -2313,12 +2340,12 @@ func HandleRANConfigurationUpdateAcknowledge(amf *context.N3IWFAMF, message *nga
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	successfulOutcome := message.SuccessfulOutcome
+	successfulOutcome := pdu.SuccessfulOutcome
 	if successfulOutcome == nil {
 		logger.NgapLog.Errorln("SuccessfulOutcome is nil")
 		return
@@ -2343,26 +2370,26 @@ func HandleRANConfigurationUpdateAcknowledge(amf *context.N3IWFAMF, message *nga
 	}
 }
 
-func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle RAN Configuration Update Failure")
 
 	var cause *ngapType.Cause
 	var timeToWait *ngapType.TimeToWait
 	var criticalityDiagnostics *ngapType.CriticalityDiagnostics
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
 	if amf == nil {
 		logger.NgapLog.Errorln("AMF Context is nil")
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	unsuccessfulOutcome := message.UnsuccessfulOutcome
+	unsuccessfulOutcome := pdu.UnsuccessfulOutcome
 	if unsuccessfulOutcome == nil {
 		logger.NgapLog.Errorln("unsuccessfulOutcome is nil")
 		return
@@ -2388,9 +2415,7 @@ func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, message *ngapTyp
 		}
 	}
 
-	if cause != nil {
-		printAndGetCause(cause)
-	}
+	printAndGetCause(cause)
 
 	printCriticalityDiagnostics(criticalityDiagnostics)
 
@@ -2414,40 +2439,40 @@ func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, message *ngapTyp
 	}
 
 	if waitingTime != 0 {
-		logger.NgapLog.Infof("wait at lease  %ds to resend RAN Configuration Update to same AMF[%s]",
+		logger.NgapLog.Infof("wait at lease %ds to resend RAN Configuration Update to same AMF[%s]",
 			waitingTime, amf.SCTPAddr)
-		n3iwfSelf.AMFReInitAvailableListStore(amf.SCTPAddr, false)
+		n3iwfCtx.AMFReInitAvailableListStore(amf.SCTPAddr, false)
 		time.AfterFunc(time.Duration(waitingTime)*time.Second, func() {
 			logger.NgapLog.Infoln("re-send Ran Configuration Update Message when waiting time expired")
-			n3iwfSelf.AMFReInitAvailableListStore(amf.SCTPAddr, true)
-			ngap_message.SendRANConfigurationUpdate(amf)
+			n3iwfCtx.AMFReInitAvailableListStore(amf.SCTPAddr, true)
+			message.SendRANConfigurationUpdate(n3iwfCtx, amf)
 		})
 		return
 	}
-	ngap_message.SendRANConfigurationUpdate(amf)
+	message.SendRANConfigurationUpdate(n3iwfCtx, amf)
 }
 
-func HandleDownlinkRANConfigurationTransfer(message *ngapType.NGAPPDU) {
+func HandleDownlinkRANConfigurationTransfer(pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Downlink RAN Configuration Transfer")
 }
 
-func HandleDownlinkRANStatusTransfer(message *ngapType.NGAPPDU) {
+func HandleDownlinkRANStatusTransfer(pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Downlink RAN Status Transfer")
 }
 
-func HandleAMFStatusIndication(message *ngapType.NGAPPDU) {
+func HandleAMFStatusIndication(pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle AMF Status Indication")
 }
 
-func HandleLocationReportingControl(message *ngapType.NGAPPDU) {
+func HandleLocationReportingControl(pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Location Reporting Control")
 }
 
-func HandleUETNLAReleaseRequest(message *ngapType.NGAPPDU) {
+func HandleUETNLAReleaseRequest(pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle UE TNLA Release Request")
 }
 
-func HandleOverloadStart(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleOverloadStart(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Overload Start")
 
 	var aMFOverloadResponse *ngapType.OverloadResponse
@@ -2459,12 +2484,12 @@ func HandleOverloadStart(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 		return
 	}
 
-	if message == nil {
+	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
 		return
 	}
 
-	initiatingMessage := message.InitiatingMessage
+	initiatingMessage := pdu.InitiatingMessage
 	if initiatingMessage == nil {
 		logger.NgapLog.Errorln("InitiatingMessage is nil")
 		return
@@ -2493,7 +2518,7 @@ func HandleOverloadStart(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
 	amf.StartOverload(aMFOverloadResponse, aMFTrafficLoadReductionIndication, overloadStartNSSAIList)
 }
 
-func HandleOverloadStop(amf *context.N3IWFAMF, message *ngapType.NGAPPDU) {
+func HandleOverloadStop(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 	logger.NgapLog.Infoln("handle Overload Stop")
 
 	if amf == nil {
@@ -2552,8 +2577,12 @@ func buildCriticalityDiagnosticsIEItem(ieCriticality aper.Enumerated, ieID int64
 }
 
 func printAndGetCause(cause *ngapType.Cause) (present int, value aper.Enumerated) {
+	if cause == nil {
+		logger.NgapLog.Errorln("cause is nil")
+		return
+	}
 	present = cause.Present
-	switch cause.Present {
+	switch present {
 	case ngapType.CausePresentRadioNetwork:
 		logger.NgapLog.Warnf("cause RadioNetwork[%d]", cause.RadioNetwork.Value)
 		value = cause.RadioNetwork.Value
@@ -2570,13 +2599,14 @@ func printAndGetCause(cause *ngapType.Cause) (present int, value aper.Enumerated
 		logger.NgapLog.Warnf("cause Misc[%d]", cause.Misc.Value)
 		value = cause.Misc.Value
 	default:
-		logger.NgapLog.Errorf("invalid Cause group[%d]", cause.Present)
+		logger.NgapLog.Errorf("invalid Cause group[%d]", present)
 	}
 	return
 }
 
 func printCriticalityDiagnostics(criticalityDiagnostics *ngapType.CriticalityDiagnostics) {
 	if criticalityDiagnostics == nil {
+		logger.NgapLog.Warnln("input is nil")
 		return
 	}
 	iesCriticalityDiagnostics := criticalityDiagnostics.IEsCriticalityDiagnostics
@@ -2584,10 +2614,8 @@ func printCriticalityDiagnostics(criticalityDiagnostics *ngapType.CriticalityDia
 		logger.NgapLog.Warnln("IEsCriticalityDiagnostics is nil")
 		return
 	}
-	for index, item := range iesCriticalityDiagnostics.List {
-		logger.NgapLog.Warnf("criticality IE item %d:", index+1)
-		logger.NgapLog.Warnf("IE ID: %d", item.IEID.Value)
-
+	for i, item := range iesCriticalityDiagnostics.List {
+		logger.NgapLog.Warnf("criticality IE item %d: IE ID: %d", i+1, item.IEID.Value)
 		switch item.IECriticality.Value {
 		case ngapType.CriticalityPresentReject:
 			logger.NgapLog.Warnln("IE Criticality: Reject")
@@ -2596,7 +2624,6 @@ func printCriticalityDiagnostics(criticalityDiagnostics *ngapType.CriticalityDia
 		case ngapType.CriticalityPresentNotify:
 			logger.NgapLog.Warnln("IE Criticality: Notify")
 		}
-
 		switch item.TypeOfError.Value {
 		case ngapType.TypeOfErrorPresentNotUnderstood:
 			logger.NgapLog.Warnln("type of error: Not Understood")
@@ -2631,14 +2658,22 @@ func HandleEvent(ngapEvent context.NgapEvt) {
 		HandleStartTCPSignalNASMsg(ngapEvent)
 	case context.NASTCPConnEstablishedComplete:
 		HandleNASTCPConnEstablishedComplete(ngapEvent)
+	case context.SendUEContextRelease:
+		HandleSendSendUEContextRelease(ngapEvent)
 	case context.SendUEContextReleaseRequest:
 		HandleSendUEContextReleaseRequest(ngapEvent)
 	case context.SendUEContextReleaseComplete:
 		HandleSendUEContextReleaseComplete(ngapEvent)
+	case context.SendPDUSessionResourceRelease:
+		HandleSendSendPDUSessionResourceRelease(ngapEvent)
 	case context.SendPDUSessionResourceReleaseResponse:
 		HandleSendPDUSessionResourceReleaseRes(ngapEvent)
 	case context.GetNGAPContext:
 		HandleGetNGAPContext(ngapEvent)
+	case context.SendUplinkNASTransport:
+		HandleSendUplinkNASTransport(ngapEvent)
+	case context.SendInitialContextSetupResponse:
+		HandleSendInitialContextSetupResponse(ngapEvent)
 	default:
 		logger.NgapLog.Errorf("undefined NGAP event type")
 		return
@@ -2648,12 +2683,12 @@ func HandleEvent(ngapEvent context.NgapEvt) {
 func HandleGetNGAPContext(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle HandleGetNGAPContext Event")
 
-	getNGAPContextEvt := ngapEvent.(*context.GetNGAPContextEvt)
-	ranUeNgapId := getNGAPContextEvt.RanUeNgapId
-	ngapCxtReqNumlist := getNGAPContextEvt.NgapCxtReqNumlist
+	evt := ngapEvent.(*context.GetNGAPContextEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	ngapCxtReqNumlist := evt.NgapCxtReqNumlist
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
@@ -2664,33 +2699,32 @@ func HandleGetNGAPContext(ngapEvent context.NgapEvt) {
 	for _, num := range ngapCxtReqNumlist {
 		switch num {
 		case context.CxtTempPDUSessionSetupData:
-			ngapCxt = append(ngapCxt, ranUe.TemporaryPDUSessionSetupData)
+			ngapCxt = append(ngapCxt, ranUe.GetSharedCtx().TemporaryPDUSessionSetupData)
 		default:
 			logger.NgapLog.Errorf("receive undefined NGAP Context Request number: %d", num)
 		}
 	}
 
-	spi, ok := n3iwfSelf.IkeSpiLoad(ranUeNgapId)
+	spi, ok := n3iwfCtx.IkeSpiLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get spi from ngapid: %d", ranUeNgapId)
 		return
 	}
 
-	n3iwfSelf.IkeServer.RcvEventCh <- context.NewGetNGAPContextRepEvt(spi,
-		ngapCxtReqNumlist, ngapCxt)
+	n3iwfCtx.IkeServer.RcvEventCh <- context.NewGetNGAPContextRepEvt(spi, ngapCxtReqNumlist, ngapCxt)
 }
 
 func HandleUnmarshalEAP5GData(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle UnmarshalEAP5GData Event")
 
-	unmarshalEAP5GDataEvt := ngapEvent.(*context.UnmarshalEAP5GDataEvt)
-	spi := unmarshalEAP5GDataEvt.LocalSPI
-	eapVendorData := unmarshalEAP5GDataEvt.EAPVendorData
-	isInitialUE := unmarshalEAP5GDataEvt.IsInitialUE
+	evt := ngapEvent.(*context.UnmarshalEAP5GDataEvt)
+	spi := evt.LocalSPI
+	eapVendorData := evt.EAPVendorData
+	isInitialUE := evt.IsInitialUE
 
-	n3iwfSelf := context.N3IWFSelf()
+	n3iwfCtx := context.N3IWFSelf()
 
-	anParameters, nasPDU, err := ngap_message.UnmarshalEAP5GData(eapVendorData)
+	anParameters, nasPDU, err := message.UnmarshalEAP5GData(eapVendorData)
 	if err != nil {
 		logger.NgapLog.Errorf("unmarshalling EAP-5G packet failed: %+v", err)
 		return
@@ -2728,64 +2762,70 @@ func HandleUnmarshalEAP5GData(ngapEvent context.NgapEvt) {
 			}
 		}
 
-		selectedAMF := n3iwfSelf.AMFSelection(anParameters.GUAMI, anParameters.SelectedPLMNID)
+		selectedAMF := n3iwfCtx.AMFSelection(anParameters.GUAMI, anParameters.SelectedPLMNID)
 		if selectedAMF == nil {
-			n3iwfSelf.IkeServer.RcvEventCh <- context.NewSendEAP5GFailureMsgEvt(spi, context.ErrAMFSelection)
+			n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAP5GFailureMsgEvt(spi, context.ErrAMFSelection)
 		} else {
-			ranUe := n3iwfSelf.NewN3iwfRanUe()
-			ranUe.AMF = selectedAMF
+			n3iwfUe := n3iwfCtx.NewN3iwfRanUe()
+			n3iwfUe.AMF = selectedAMF
 			if anParameters.EstablishmentCause != nil {
-				ranUe.RRCEstablishmentCause = int16(anParameters.EstablishmentCause.Value)
+				value := uint64(anParameters.EstablishmentCause.Value)
+				if value > uint64(math.MaxInt16) {
+					logger.NgapLog.Errorf("anParameters.EstablishmentCause.Value exceeds int16: %+d", value)
+					return
+				}
+				n3iwfUe.RRCEstablishmentCause = int16(value)
 			}
 
-			n3iwfSelf.IkeServer.RcvEventCh <- context.NewUnmarshalEAP5GDataResponseEvt(spi,
-				ranUe.RanUeNgapId, nasPDU)
+			n3iwfCtx.IkeServer.RcvEventCh <- context.NewUnmarshalEAP5GDataResponseEvt(spi, n3iwfUe.RanUeNgapId, nasPDU)
 		}
 	} else {
-		ranUeNgapId := unmarshalEAP5GDataEvt.RanUeNgapId
-		ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+		ranUeNgapId := evt.RanUeNgapId
+		ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 		if !ok {
 			logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 			return
 		}
-		ngap_message.SendUplinkNASTransport(ranUe, nasPDU)
+		message.SendUplinkNASTransport(ranUe, nasPDU)
 	}
 }
 
 func HandleSendInitialUEMessage(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendInitialUEMessage Event")
 
-	sendInitialUEMessageEvt := ngapEvent.(*context.SendInitialUEMessageEvt)
-	ranUeNgapId := sendInitialUEMessageEvt.RanUeNgapId
-	ipv4Addr := sendInitialUEMessageEvt.IPv4Addr
-	ipv4Port := sendInitialUEMessageEvt.IPv4Port
-	nasPDU := sendInitialUEMessageEvt.NasPDU
+	evt := ngapEvent.(*context.SendInitialUEMessageEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	ipv4Addr := evt.IPv4Addr
+	ipv4Port := evt.IPv4Port
+	nasPDU := evt.NasPDU
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
-	ranUe.IPAddrv4 = ipv4Addr
-	ranUe.PortNumber = int32(ipv4Port)
-	ngap_message.SendInitialUEMessage(ranUe.AMF, ranUe, nasPDU)
+	ranUeCtx := ranUe.GetSharedCtx()
+	ranUeCtx.IPAddrv4 = ipv4Addr
+	ranUeCtx.PortNumber = int32(ipv4Port)
+	message.SendInitialUEMessage(ranUeCtx.AMF, ranUe, nasPDU)
 }
 
 func HandleSendPDUSessionResourceSetupResponse(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendPDUSessionResourceSetupResponse Event")
 
-	sendPDUSessionResourceSetupResEvt := ngapEvent.(*context.SendPDUSessionResourceSetupResEvt)
-	ranUeNgapId := sendPDUSessionResourceSetupResEvt.RanUeNgapId
+	evt := ngapEvent.(*context.SendPDUSessionResourceSetupResEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
 
-	temporaryPDUSessionSetupData := ranUe.TemporaryPDUSessionSetupData
+	ranUeCtx := ranUe.GetSharedCtx()
+	temporaryPDUSessionSetupData := ranUeCtx.TemporaryPDUSessionSetupData
 
 	if len(temporaryPDUSessionSetupData.UnactivatedPDUSession) != 0 {
 		for index, pduSession := range temporaryPDUSessionSetupData.UnactivatedPDUSession {
@@ -2805,126 +2845,149 @@ func HandleSendPDUSessionResourceSetupResponse(ngapEvent context.NgapEvt) {
 					return
 				}
 
-				transfer, err := ngap_message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(cause, nil)
+				transfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(cause, nil)
 				if err != nil {
 					logger.NgapLog.Errorf("build PDU Session Resource Setup Unsuccessful Transfer Failed: %+v", err)
 					continue
 				}
 
 				if temporaryPDUSessionSetupData.NGAPProcedureCode.Value == ngapType.ProcedureCodeInitialContextSetup {
-					ngap_message.AppendPDUSessionResourceFailedToSetupListCxtRes(
+					message.AppendPDUSessionResourceFailedToSetupListCxtRes(
 						temporaryPDUSessionSetupData.FailedListCxtRes, pduSession.Id, transfer)
 				} else {
-					ngap_message.AppendPDUSessionResourceFailedToSetupListSURes(
+					message.AppendPDUSessionResourceFailedToSetupListSURes(
 						temporaryPDUSessionSetupData.FailedListSURes, pduSession.Id, transfer)
 				}
 			} else {
+				var gtpAddr string
+				switch ranUe.(type) {
+				case *context.N3IWFRanUe:
+					gtpAddr = n3iwfCtx.GtpBindAddress
+				}
+
 				// Append NGAP PDU session resource setup response transfer
-				transfer, err := ngap_message.BuildPDUSessionResourceSetupResponseTransfer(pduSession)
+				transfer, err := message.BuildPDUSessionResourceSetupResponseTransfer(pduSession, gtpAddr)
 				if err != nil {
 					logger.NgapLog.Errorf("build PDU session resource setup response transfer failed: %+v", err)
 					return
 				}
 				if temporaryPDUSessionSetupData.NGAPProcedureCode.Value == ngapType.ProcedureCodeInitialContextSetup {
-					ngap_message.AppendPDUSessionResourceSetupListCxtRes(
+					message.AppendPDUSessionResourceSetupListCxtRes(
 						temporaryPDUSessionSetupData.SetupListCxtRes, pduSession.Id, transfer)
 				} else {
-					ngap_message.AppendPDUSessionResourceSetupListSURes(
+					message.AppendPDUSessionResourceSetupListSURes(
 						temporaryPDUSessionSetupData.SetupListSURes, pduSession.Id, transfer)
 				}
 			}
 		}
 
 		if temporaryPDUSessionSetupData.NGAPProcedureCode.Value == ngapType.ProcedureCodeInitialContextSetup {
-			ngap_message.SendInitialContextSetupResponse(ranUe,
+			message.SendInitialContextSetupResponse(ranUe,
 				temporaryPDUSessionSetupData.SetupListCxtRes,
 				temporaryPDUSessionSetupData.FailedListCxtRes, nil)
 		} else {
-			ngap_message.SendPDUSessionResourceSetupResponse(ranUe,
+			message.SendPDUSessionResourceSetupResponse(ranUe,
 				temporaryPDUSessionSetupData.SetupListSURes,
 				temporaryPDUSessionSetupData.FailedListSURes, nil)
 		}
 	} else {
-		ngap_message.SendInitialContextSetupResponse(ranUe, nil, nil, nil)
+		message.SendInitialContextSetupResponse(ranUe, nil, nil, nil)
 	}
 }
 
 func HandleSendNASMsg(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendNASMsg Event")
 
-	sendNASMsgEvt := ngapEvent.(*context.SendNASMsgEvt)
-	ranUeNgapId := sendNASMsgEvt.RanUeNgapId
+	evt := ngapEvent.(*context.SendNASMsgEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
 
-	if n, ikeErr := ranUe.TCPConnection.Write(ranUe.TemporaryCachedNASMessage); ikeErr != nil {
+	n3iwfUe, ok := ranUe.(*context.N3IWFRanUe)
+	if !ok {
+		logger.NgapLog.Errorln("type assertion: RanUe -> N3iwfUe failed")
+		return
+	}
+
+	if n, ikeErr := n3iwfUe.TCPConnection.Write(n3iwfUe.TemporaryCachedNASMessage); ikeErr != nil {
 		logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %+v", ikeErr)
 	} else {
 		logger.NgapLog.Debugf("forward PDU Seesion Establishment Accept to UE. Wrote %d bytes", n)
-		ranUe.TemporaryCachedNASMessage = nil
+		n3iwfUe.TemporaryCachedNASMessage = nil
 	}
 }
 
 func HandleStartTCPSignalNASMsg(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle StartTCPSignalNASMsg Event")
 
-	startTCPSignalNASMsgEvt := ngapEvent.(*context.StartTCPSignalNASMsgEvt)
-	ranUeNgapId := startTCPSignalNASMsgEvt.RanUeNgapId
+	evt := ngapEvent.(*context.StartTCPSignalNASMsgEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
 
-	ranUe.IsNASTCPConnEstablished = true
+	n3iwfUe, ok := ranUe.(*context.N3IWFRanUe)
+	if !ok {
+		logger.NgapLog.Errorln("type assertion: RanUe -> N3iwfUe failed")
+		return
+	}
+
+	n3iwfUe.IsNASTCPConnEstablished = true
 }
 
 func HandleNASTCPConnEstablishedComplete(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle NASTCPConnEstablishedComplete Event")
 
-	nasTCPConnEstablishedCompleteEvt := ngapEvent.(*context.NASTCPConnEstablishedCompleteEvt)
-	ranUeNgapId := nasTCPConnEstablishedCompleteEvt.RanUeNgapId
+	evt := ngapEvent.(*context.NASTCPConnEstablishedCompleteEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
+	n3iwfUe, ok := ranUe.(*context.N3IWFRanUe)
+	if !ok {
+		logger.NgapLog.Errorln("type assertion: RanUe -> N3iwfUe failed")
+		return
+	}
 
-	ranUe.IsNASTCPConnEstablishedComplete = true
+	n3iwfUe.IsNASTCPConnEstablishedComplete = true
 
-	if ranUe.TemporaryCachedNASMessage != nil {
+	if n3iwfUe.TemporaryCachedNASMessage != nil {
 		// Send to UE
-		if n, err := ranUe.TCPConnection.Write(ranUe.TemporaryCachedNASMessage); err != nil {
+		if n, err := n3iwfUe.TCPConnection.Write(n3iwfUe.TemporaryCachedNASMessage); err != nil {
 			logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %+v", err)
 		} else {
 			logger.NgapLog.Debugln("forward NWu <- N2")
 			logger.NgapLog.Debugf("wrote %d bytes", n)
 		}
-		ranUe.TemporaryCachedNASMessage = nil
+		n3iwfUe.TemporaryCachedNASMessage = nil
 	}
 }
 
 func HandleSendUEContextReleaseRequest(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendUEContextReleaseRequest Event")
 
-	sendUEContextReleaseReqEvt := ngapEvent.(*context.SendUEContextReleaseRequestEvt)
+	evt := ngapEvent.(*context.SendUEContextReleaseRequestEvt)
 
-	ranUeNgapId := sendUEContextReleaseReqEvt.RanUeNgapId
-	errMsg := sendUEContextReleaseReqEvt.ErrMsg
+	ranUeNgapId := evt.RanUeNgapId
+	errMsg := evt.ErrMsg
 
 	var cause *ngapType.Cause
 	switch errMsg {
 	case context.ErrRadioConnWithUeLost:
-		cause = ngap_message.BuildCause(ngapType.CausePresentRadioNetwork,
+		cause = message.BuildCause(ngapType.CausePresentRadioNetwork,
 			ngapType.CauseRadioNetworkPresentRadioConnectionWithUeLost)
 	case context.ErrNil:
 	default:
@@ -2932,24 +2995,24 @@ func HandleSendUEContextReleaseRequest(ngapEvent context.NgapEvt) {
 		return
 	}
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
 
-	ngap_message.SendUEContextReleaseRequest(ranUe, *cause)
+	message.SendUEContextReleaseRequest(ranUe, *cause)
 }
 
 func HandleSendUEContextReleaseComplete(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendUEContextReleaseComplete Event")
 
-	sendUEContextReleaseCompleteEvt := ngapEvent.(*context.SendUEContextReleaseCompleteEvt)
-	ranUeNgapId := sendUEContextReleaseCompleteEvt.RanUeNgapId
+	evt := ngapEvent.(*context.SendUEContextReleaseCompleteEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
@@ -2958,21 +3021,101 @@ func HandleSendUEContextReleaseComplete(ngapEvent context.NgapEvt) {
 	if err := ranUe.Remove(); err != nil {
 		logger.NgapLog.Errorf("delete RanUe Context error: %+v", err)
 	}
-	ngap_message.SendUEContextReleaseComplete(ranUe, nil)
+	message.SendUEContextReleaseComplete(ranUe, nil)
 }
 
 func HandleSendPDUSessionResourceReleaseRes(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendPDUSessionResourceReleaseResponse Event")
 
-	sendPDUSessionResourceReleaseResEvt := ngapEvent.(*context.SendPDUSessionResourceReleaseResEvt)
-	ranUeNgapId := sendPDUSessionResourceReleaseResEvt.RanUeNgapId
+	evt := ngapEvent.(*context.SendPDUSessionResourceReleaseResEvt)
+	ranUeNgapId := evt.RanUeNgapId
 
-	n3iwfSelf := context.N3IWFSelf()
-	ranUe, ok := n3iwfSelf.RanUePoolLoad(ranUeNgapId)
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
 	if !ok {
 		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
 		return
 	}
 
-	ngap_message.SendPDUSessionResourceReleaseResponse(ranUe, ranUe.PduSessionReleaseList, nil)
+	message.SendPDUSessionResourceReleaseResponse(ranUe, ranUe.GetSharedCtx().PduSessionReleaseList, nil)
+}
+
+func HandleSendUplinkNASTransport(ngapEvent context.NgapEvt) {
+	logger.NgapLog.Debugln("handle SendUplinkNASTransport Event")
+
+	evt := ngapEvent.(*context.SendUplinkNASTransportEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
+		return
+	}
+
+	message.SendUplinkNASTransport(ranUe, evt.Pdu)
+}
+
+func HandleSendInitialContextSetupResponse(ngapEvent context.NgapEvt) {
+	logger.NgapLog.Debugln("handle SendInitialContextSetupResponse Event")
+
+	evt := ngapEvent.(*context.SendInitialContextSetupRespEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
+		return
+	}
+
+	message.SendInitialContextSetupResponse(ranUe, evt.ResponseList, evt.FailedList, evt.CriticalityDiagnostics)
+}
+
+func HandleSendSendUEContextRelease(ngapEvent context.NgapEvt) {
+	logger.NgapLog.Debugln("handle SendSendUEContextRelease Event")
+
+	evt := ngapEvent.(*context.SendUEContextReleaseEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
+		return
+	}
+
+	if ranUe.GetSharedCtx().UeCtxRelState {
+		if err := ranUe.Remove(); err != nil {
+			logger.NgapLog.Errorf("delete RanUe Context error: %v", err)
+		}
+		message.SendUEContextReleaseComplete(ranUe, nil)
+		ranUe.GetSharedCtx().UeCtxRelState = context.UeCtxRelStateNone
+	} else {
+		cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
+			ngapType.CauseRadioNetworkPresentRadioConnectionWithUeLost)
+		message.SendUEContextReleaseRequest(ranUe, *cause)
+		ranUe.GetSharedCtx().UeCtxRelState = context.UeCtxRelStateOngoing
+	}
+}
+
+func HandleSendSendPDUSessionResourceRelease(ngapEvent context.NgapEvt) {
+	logger.NgapLog.Debugln("handle SendSendPDUSessionResourceRelease Event")
+
+	evt := ngapEvent.(*context.SendPDUSessionResourceReleaseEvt)
+	ranUeNgapId := evt.RanUeNgapId
+	deletPduIds := evt.DeletePduIds
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		logger.NgapLog.Errorf("cannot get RanUE from ranUeNgapId: %d", ranUeNgapId)
+		return
+	}
+
+	if ranUe.GetSharedCtx().PduSessResRelState {
+		message.SendPDUSessionResourceReleaseResponse(ranUe, ranUe.GetSharedCtx().PduSessionReleaseList, nil)
+		ranUe.GetSharedCtx().PduSessResRelState = context.PduSessResRelStateNone
+	} else {
+		for _, id := range deletPduIds {
+			ranUe.GetSharedCtx().DeletePDUSession(id)
+		}
+		ranUe.GetSharedCtx().PduSessResRelState = context.PduSessResRelStateOngoing
+	}
 }

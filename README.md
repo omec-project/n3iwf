@@ -5,22 +5,24 @@ SPDX-License-Identifier: Apache-2.0
 -->
 [![Go Report Card](https://goreportcard.com/badge/github.com/omec-project/n3iwf)](https://goreportcard.com/report/github.com/omec-project/n3iwf)
 
-# N3IWF Codebase Documentation
+# N3IWF
 
 ## Overview
 N3IWF (Non-3GPP Interworking Function) is a component of the 5G core network that enables secure interworking between 5G core and non-3GPP access networks (such as Wi-Fi). This codebase implements the N3IWF node, handling control and user plane signaling, security associations, and communication with the 5G core (AMF, UPF).
 
 ## Architecture
-The N3IWF is composed of several main components and services, each responsible for a specific aspect of the system. The relationships and interactions between these components are illustrated in the PlantUML component diagram:
+The N3IWF consists of several main components and services, each responsible for a specific aspect of the system. The relationships and interactions between these components are illustrated in the PlantUML component diagram:
 
-```
-@startuml
-!include n3iwf_component_diagram.puml
-@enduml
-```
+![N3IWF Architecture](docs/images/n3iwf-architecture.svg)
+
+**Description:**
+- UE connects to N3IWF via a secure IPsec tunnel over WiFi.
+- N3IWF acts as a gateway between non-3GPP access (WiFi) and the 5G Core (AMF, UPF).
+- Control plane traffic is sent to AMF (N2 interface).
+- User plane traffic is sent to UPF (N3 interface).
+- UPF forwards user data to the Internet.
 
 ## Main Components
-
 - **Main Application**: Entry point (`n3iwf.go`), initializes configuration and starts all services.
 - **Context**: Global state and object pools for AMF, UE, security associations, and connections (`context/context.go`, `context/amf.go`, `context/ue.go`).
 - **Factory**: Loads and parses configuration files (`factory/config.go`).
@@ -41,6 +43,24 @@ The N3IWF is composed of several main components and services, each responsible 
    - IKE (IKEv2/IPSec negotiation)
 3. **Context Management**: All services share and update the global context for AMF, UE, and security associations.
 4. **Message Handling**: NGAP and IKE messages are dispatched to handlers for protocol-specific processing.
+
+## Configuration
+- The main configuration file is typically located at `config/n3iwf.yaml`.
+- Example configuration options include network interfaces, AMF addresses, security parameters, and logging levels.
+- See `factory/config.go` for supported parameters and structure.
+
+## Deployment
+- N3IWF can be run as a standalone binary or in a containerized environment (Docker).
+- Ensure required network interfaces and routes are configured for SCTP, TCP, and UDP communication.
+- For production, review and adjust security settings in the configuration file.
+
+## Troubleshooting
+- Logs are written to stdout and can be configured for verbosity in the config file.
+- Common issues:
+  - SCTP connection failures: Check AMF address and network reachability.
+  - IKE/IPSec negotiation errors: Verify security parameters and certificates.
+  - User plane forwarding: Ensure GTP and NWuUP interfaces are correctly set up.
+- For more details, consult logs and refer to the relevant service source files.
 
 ## Key Files
 - `n3iwf.go`: Main entry point.

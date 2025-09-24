@@ -5,7 +5,7 @@
 #
 
 # Toolchain
-# Goland project folder
+# Golang project folder
 .idea/
 # Visual Studio Code
 .vscode/
