@@ -7,86 +7,67 @@ package message
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/omec-project/n3iwf/logger"
 )
 
 type IKEMessage struct {
-	InitiatorSPI uint64
-	ResponderSPI uint64
-	Version      uint8
-	ExchangeType uint8
-	Flags        uint8
-	MessageID    uint32
-	Payloads     IKEPayloadContainer
+	*IKEHeader
+	Payloads IKEPayloadContainer
+}
+
+func NewMessage(
+	iSPI, rSPI uint64, exchgType uint8,
+	response, initiator bool, mId uint32,
+	payloads IKEPayloadContainer,
+) *IKEMessage {
+	ikeMessage := &IKEMessage{
+		IKEHeader: NewHeader(iSPI, rSPI, exchgType,
+			response, initiator, mId, NoNext, nil),
+		Payloads: payloads,
+	}
+	return ikeMessage
 }
 
 func (ikeMessage *IKEMessage) Encode() ([]byte, error) {
 	logger.IKELog.Debugln("encoding IKE message")
-
-	ikeMessageData := make([]byte, 28)
-
-	binary.BigEndian.PutUint64(ikeMessageData[0:8], ikeMessage.InitiatorSPI)
-	binary.BigEndian.PutUint64(ikeMessageData[8:16], ikeMessage.ResponderSPI)
-	ikeMessageData[17] = ikeMessage.Version
-	ikeMessageData[18] = ikeMessage.ExchangeType
-	ikeMessageData[19] = ikeMessage.Flags
-	binary.BigEndian.PutUint32(ikeMessageData[20:24], ikeMessage.MessageID)
-
 	if len(ikeMessage.Payloads) > 0 {
-		ikeMessageData[16] = byte(ikeMessage.Payloads[0].Type())
+		ikeMessage.IKEHeader.NextPayload = ikeMessage.Payloads[0].Type()
 	} else {
-		ikeMessageData[16] = NoNext
+		ikeMessage.IKEHeader.NextPayload = NoNext
 	}
 
-	ikeMessagePayloadData, err := ikeMessage.Payloads.Encode()
+	var err error
+	ikeMessage.IKEHeader.PayloadBytes, err = ikeMessage.Payloads.Encode()
 	if err != nil {
-		return nil, fmt.Errorf("encode payload failed: %+v", err)
+		return nil, fmt.Errorf("encode payload failed: %w", err)
 	}
-
-	ikeMessageData = append(ikeMessageData, ikeMessagePayloadData...)
-	binary.BigEndian.PutUint32(ikeMessageData[24:28], uint32(len(ikeMessageData)))
-
-	logger.IKELog.Debugf("encoded %d bytes", len(ikeMessageData))
-	logger.IKELog.Debugf("IKE message data:\n%s", hex.Dump(ikeMessageData))
-
-	return ikeMessageData, nil
+	return ikeMessage.IKEHeader.Marshal()
 }
 
 func (ikeMessage *IKEMessage) Decode(rawData []byte) error {
 	// IKE message packet format this implementation referenced is
 	// defined in RFC 7296, Section 3.1
 	logger.IKELog.Debugln("decoding IKE message")
-	logger.IKELog.Debugf("received IKE message:\n%s", hex.Dump(rawData))
-
-	// bounds checking
-	if len(rawData) < 28 {
-		return errors.New("received broken IKE header")
-	}
-	ikeMessageLength := binary.BigEndian.Uint32(rawData[24:28])
-	if ikeMessageLength < 28 {
-		return fmt.Errorf("illegal IKE message length %d < header length 20", ikeMessageLength)
-	}
-	// len() return int, which is 64 bit on 64-bit host and 32 bit
-	// on 32-bit host, so this implementation may potentially cause
-	// problem on 32-bit machine
-	if len(rawData) != int(ikeMessageLength) {
-		return errors.New("the length of received message not matchs the length specified in header")
+	var err error
+	ikeMessage.IKEHeader, err = ParseHeader(rawData)
+	if err != nil {
+		return fmt.Errorf("Decode(): %w", err)
 	}
 
-	nextPayload := rawData[16]
+	err = ikeMessage.DecodePayload(ikeMessage.PayloadBytes)
+	if err != nil {
+		return fmt.Errorf("decode payload failed: %v", err)
+	}
 
-	ikeMessage.InitiatorSPI = binary.BigEndian.Uint64(rawData[:8])
-	ikeMessage.ResponderSPI = binary.BigEndian.Uint64(rawData[8:16])
-	ikeMessage.Version = rawData[17]
-	ikeMessage.ExchangeType = rawData[18]
-	ikeMessage.Flags = rawData[19]
-	ikeMessage.MessageID = binary.BigEndian.Uint32(rawData[20:24])
+	return nil
+}
 
-	err := ikeMessage.Payloads.Decode(nextPayload, rawData[28:])
+func (ikeMessage *IKEMessage) DecodePayload(rawData []byte) error {
+	err := ikeMessage.Payloads.Decode(ikeMessage.NextPayload, rawData)
 	if err != nil {
 		return fmt.Errorf("decode payload failed: %+v", err)
 	}
@@ -95,6 +76,19 @@ func (ikeMessage *IKEMessage) Decode(rawData []byte) error {
 }
 
 type IKEPayloadContainer []IKEPayload
+
+// Helper function for bounds checking
+func checkLen(data []byte, minLen int, errMsg string) error {
+	if len(data) < minLen {
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
+// Helper function for appending bytes efficiently
+func appendBytes(dst *[]byte, src []byte) {
+	*dst = append(*dst, src...)
+}
 
 func (container *IKEPayloadContainer) Encode() ([]byte, error) {
 	logger.IKELog.Debugln("encoding IKE payloads")
@@ -107,9 +101,9 @@ func (container *IKEPayloadContainer) Encode() ([]byte, error) {
 			payloadData[0] = uint8((*container)[index+1].Type())
 		} else {
 			if payload.Type() == TypeSK {
-				payloadData[0] = payload.(*Encrypted).NextPayload
+				payloadData[0] = byte(payload.(*Encrypted).NextPayload)
 			} else {
-				payloadData[0] = NoNext
+				payloadData[0] = byte(NoNext)
 			}
 		}
 
@@ -119,29 +113,33 @@ func (container *IKEPayloadContainer) Encode() ([]byte, error) {
 		}
 
 		payloadData = append(payloadData, data...)
-		binary.BigEndian.PutUint16(payloadData[2:4], uint16(len(payloadData)))
+		payloadDataLen := len(payloadData)
+		if payloadDataLen > math.MaxUint16 {
+			return nil, fmt.Errorf("payloadData length exceeds uint16 limit: %d", payloadDataLen)
+		}
+		binary.BigEndian.PutUint16(payloadData[2:4], uint16(payloadDataLen))
 
-		ikeMessagePayloadData = append(ikeMessagePayloadData, payloadData...)
+		appendBytes(&ikeMessagePayloadData, payloadData)
 	}
 
 	return ikeMessagePayloadData, nil
 }
 
-func (container *IKEPayloadContainer) Decode(nextPayload uint8, rawData []byte) error {
+func (container *IKEPayloadContainer) Decode(nextPayload IKEPayloadType, rawData []byte) error {
 	logger.IKELog.Debugln("decoding IKE payloads")
 
 	for len(rawData) > 0 {
 		// bounds checking
 		logger.IKELog.Debugln("decode 1 payload")
-		if len(rawData) < 4 {
-			return errors.New("no sufficient bytes to decode next payload")
+		if err := checkLen(rawData, 4, "no sufficient bytes to decode next payload"); err != nil {
+			return err
 		}
 		payloadLength := binary.BigEndian.Uint16(rawData[2:4])
 		if payloadLength < 4 {
 			return fmt.Errorf("illegal payload length %d < header length 4", payloadLength)
 		}
-		if len(rawData) < int(payloadLength) {
-			return errors.New("the length of received message not matchs the length specified in header")
+		if err := checkLen(rawData, int(payloadLength), "the length of received message not match the length specified in header"); err != nil {
+			return err
 		}
 
 		criticalBit := (rawData[1] & 0x80) >> 7
@@ -177,7 +175,7 @@ func (container *IKEPayloadContainer) Decode(nextPayload uint8, rawData []byte) 
 			payload = new(TrafficSelectorResponder)
 		case TypeSK:
 			encryptedPayload := new(Encrypted)
-			encryptedPayload.NextPayload = rawData[0]
+			encryptedPayload.NextPayload = IKEPayloadType(rawData[0])
 			payload = encryptedPayload
 		case TypeCP:
 			payload = new(Configuration)
@@ -189,7 +187,7 @@ func (container *IKEPayloadContainer) Decode(nextPayload uint8, rawData []byte) 
 				return fmt.Errorf("unknown payload type: %d", nextPayload)
 			}
 			// Skip this payload
-			nextPayload = rawData[0]
+			nextPayload = IKEPayloadType(rawData[0])
 			rawData = rawData[payloadLength:]
 			continue
 		}
@@ -200,7 +198,7 @@ func (container *IKEPayloadContainer) Decode(nextPayload uint8, rawData []byte) 
 
 		*container = append(*container, payload)
 
-		nextPayload = rawData[0]
+		nextPayload = IKEPayloadType(rawData[0])
 		rawData = rawData[payloadLength:]
 	}
 
@@ -267,7 +265,11 @@ func (securityAssociation *SecurityAssociation) marshal() ([]byte, error) {
 		proposalData[4] = proposal.ProposalNumber
 		proposalData[5] = proposal.ProtocolID
 
-		proposalData[6] = uint8(len(proposal.SPI))
+		numberofSPI := len(proposal.SPI)
+		if numberofSPI > math.MaxUint8 {
+			return nil, fmt.Errorf("proposal: Too many SPI: %d", numberofSPI)
+		}
+		proposalData[6] = uint8(numberofSPI)
 		if len(proposal.SPI) > 0 {
 			proposalData = append(proposalData, proposal.SPI...)
 		}
@@ -283,7 +285,12 @@ func (securityAssociation *SecurityAssociation) marshal() ([]byte, error) {
 		if len(transformList) == 0 {
 			return nil, errors.New("one proposal has no any transform")
 		}
-		proposalData[7] = uint8(len(transformList))
+
+		transformListCount := len(transformList)
+		if transformListCount > math.MaxUint8 {
+			return nil, fmt.Errorf("transform: Too many transform: %d", transformListCount)
+		}
+		proposalData[7] = uint8(transformListCount)
 
 		proposalTransformData := make([]byte, 0)
 
@@ -309,7 +316,11 @@ func (securityAssociation *SecurityAssociation) marshal() ([]byte, error) {
 					}
 					attributeFormatAndType := ((uint16(transform.AttributeFormat) & 0x1) << 15) | transform.AttributeType
 					binary.BigEndian.PutUint16(attributeData[0:2], attributeFormatAndType)
-					binary.BigEndian.PutUint16(attributeData[2:4], uint16(len(transform.VariableLengthAttributeValue)))
+					variableLen := len(transform.VariableLengthAttributeValue)
+					if variableLen > math.MaxUint16 {
+						return nil, fmt.Errorf("variableLengthAttributeValue length exceeds uint16 limit: %d", variableLen)
+					}
+					binary.BigEndian.PutUint16(attributeData[2:4], uint16(variableLen))
 					attributeData = append(attributeData, transform.VariableLengthAttributeValue...)
 				} else {
 					// TV
@@ -320,14 +331,21 @@ func (securityAssociation *SecurityAssociation) marshal() ([]byte, error) {
 
 				transformData = append(transformData, attributeData...)
 			}
-
-			binary.BigEndian.PutUint16(transformData[2:4], uint16(len(transformData)))
+			transformDataLen := len(transformData)
+			if transformDataLen > math.MaxUint16 {
+				return nil, fmt.Errorf("transform data length exceeds uint16 limit: %d", transformDataLen)
+			}
+			binary.BigEndian.PutUint16(transformData[2:4], uint16(transformDataLen))
 
 			proposalTransformData = append(proposalTransformData, transformData...)
 		}
 
 		proposalData = append(proposalData, proposalTransformData...)
-		binary.BigEndian.PutUint16(proposalData[2:4], uint16(len(proposalData)))
+		proposalDataLen := len(proposalData)
+		if proposalDataLen > math.MaxUint16 {
+			return nil, fmt.Errorf("proposal data length exceeds uint16 limit: %d", proposalDataLen)
+		}
+		binary.BigEndian.PutUint16(proposalData[2:4], uint16(proposalDataLen))
 
 		securityAssociationData = append(securityAssociationData, proposalData...)
 	}
@@ -342,15 +360,15 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 	for len(rawData) > 0 {
 		logger.IKELog.Debugln("unmarshal 1 proposal")
 		// bounds checking
-		if len(rawData) < 8 {
-			return errors.New("no sufficient bytes to decode next proposal")
+		if err := checkLen(rawData, 8, "no sufficient bytes to decode next proposal"); err != nil {
+			return err
 		}
 		proposalLength := binary.BigEndian.Uint16(rawData[2:4])
 		if proposalLength < 8 {
-			return errors.New("illegal payload length %d < header length 8")
+			return fmt.Errorf("illegal payload length %d < header length 8", proposalLength)
 		}
-		if len(rawData) < int(proposalLength) {
-			return errors.New("the length of received message not matchs the length specified in header")
+		if err := checkLen(rawData, int(proposalLength), "length of received message not match the length specified in header"); err != nil {
+			return err
 		}
 
 		// Log whether this proposal is the last
@@ -369,8 +387,8 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 		spiSize := rawData[6]
 		if spiSize > 0 {
 			// bounds checking
-			if len(rawData) < int(8+spiSize) {
-				return errors.New("no sufficient bytes for unmarshalling SPI of proposal")
+			if err := checkLen(rawData, int(8+spiSize), "no sufficient bytes for unmarshalling SPI of proposal"); err != nil {
+				return err
 			}
 			proposal.SPI = append(proposal.SPI, rawData[8:8+spiSize]...)
 		}
@@ -380,15 +398,15 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 		for len(transformData) > 0 {
 			// bounds checking
 			logger.IKELog.Debugln("unmarshal 1 transform")
-			if len(transformData) < 8 {
-				return errors.New("no sufficient bytes to decode next transform")
+			if err := checkLen(transformData, 8, "no sufficient bytes to decode next transform"); err != nil {
+				return err
 			}
 			transformLength := binary.BigEndian.Uint16(transformData[2:4])
 			if transformLength < 8 {
-				return errors.New("illegal payload length %d < header length 8")
+				return fmt.Errorf("illegal payload length %d < header length 8", transformLength)
 			}
-			if len(transformData) < int(transformLength) {
-				return errors.New("the length of received message not matchs the length specified in header")
+			if err := checkLen(transformData, int(transformLength), "length of received message not match the length specified in header"); err != nil {
+				return err
 			}
 
 			// Log whether this transform is the last
@@ -412,7 +430,7 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 						return fmt.Errorf("illegal attribute length %d not satisfies the transform length %d",
 							attributeLength, transformLength)
 					}
-					copy(transform.VariableLengthAttributeValue, transformData[12:12+attributeLength])
+					transform.VariableLengthAttributeValue = append(transform.VariableLengthAttributeValue, transformData[12:12+attributeLength]...)
 				} else {
 					transform.AttributeValue = binary.BigEndian.Uint16(transformData[10:12])
 				}
@@ -724,7 +742,11 @@ func (notification *Notification) marshal() ([]byte, error) {
 	notificationData := make([]byte, 4)
 
 	notificationData[0] = notification.ProtocolID
-	notificationData[1] = uint8(len(notification.SPI))
+	numberofSPI := len(notification.SPI)
+	if numberofSPI > math.MaxUint8 {
+		return nil, fmt.Errorf("number of SPI exceeds uint8 limit: %d", numberofSPI)
+	}
+	notificationData[1] = uint8(numberofSPI)
 	binary.BigEndian.PutUint16(notificationData[2:4], notification.NotifyMessageType)
 
 	notificationData = append(notificationData, notification.SPI...)
@@ -765,7 +787,7 @@ type Delete struct {
 	ProtocolID  uint8
 	SPISize     uint8
 	NumberOfSPI uint16
-	SPIs        []byte
+	SPIs        []uint32
 }
 
 func (del *Delete) Type() IKEPayloadType { return TypeD }
@@ -773,8 +795,8 @@ func (del *Delete) Type() IKEPayloadType { return TypeD }
 func (del *Delete) marshal() ([]byte, error) {
 	logger.IKELog.Debugln("start marshalling")
 
-	if len(del.SPIs) != (int(del.SPISize) * int(del.NumberOfSPI)) {
-		return nil, fmt.Errorf("total bytes of all SPIs not correct")
+	if len(del.SPIs) != int(del.NumberOfSPI) {
+		return nil, errors.New("number of SPI not correct")
 	}
 
 	deleteData := make([]byte, 4)
@@ -784,7 +806,11 @@ func (del *Delete) marshal() ([]byte, error) {
 	binary.BigEndian.PutUint16(deleteData[2:4], del.NumberOfSPI)
 
 	if int(del.NumberOfSPI) > 0 {
-		deleteData = append(deleteData, del.SPIs...)
+		byteSlice := make([]byte, del.SPISize)
+		for _, v := range del.SPIs {
+			binary.BigEndian.PutUint32(byteSlice, v)
+			deleteData = append(deleteData, byteSlice...)
+		}
 	}
 
 	return deleteData, nil
@@ -810,7 +836,12 @@ func (del *Delete) unmarshal(rawData []byte) error {
 		del.SPISize = spiSize
 		del.NumberOfSPI = numberOfSPI
 
-		del.SPIs = append(del.SPIs, rawData[4:]...)
+		rawData = rawData[4:]
+		var spi uint32
+		for i := 0; i < len(rawData); i += 4 {
+			spi = binary.BigEndian.Uint32(rawData[i : i+4])
+			del.SPIs = append(del.SPIs, spi)
+		}
 	}
 
 	return nil
@@ -870,7 +901,13 @@ func (trafficSelector *TrafficSelectorInitiator) marshal() ([]byte, error) {
 	}
 
 	trafficSelectorData := make([]byte, 4)
-	trafficSelectorData[0] = uint8(len(trafficSelector.TrafficSelectors))
+	selectorCount := len(trafficSelector.TrafficSelectors)
+
+	if selectorCount > math.MaxUint8 {
+		return nil, fmt.Errorf("too many traffic selectors: %d", selectorCount)
+	}
+
+	trafficSelectorData[0] = uint8(selectorCount)
 
 	for _, individualTrafficSelector := range trafficSelector.TrafficSelectors {
 		switch individualTrafficSelector.TSType {
@@ -894,7 +931,11 @@ func (trafficSelector *TrafficSelectorInitiator) marshal() ([]byte, error) {
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
 
-			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+			dataLen := len(individualTrafficSelectorData)
+			if dataLen > math.MaxUint16 {
+				return nil, fmt.Errorf("individualTrafficSelectorData length exceeds uint16 maximum value: %v", dataLen)
+			}
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(dataLen))
 
 			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
 		case TS_IPV6_ADDR_RANGE:
@@ -917,7 +958,11 @@ func (trafficSelector *TrafficSelectorInitiator) marshal() ([]byte, error) {
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
 
-			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+			dataLen := len(individualTrafficSelectorData)
+			if dataLen > math.MaxUint16 {
+				return nil, fmt.Errorf("individualTrafficSelectorData length exceeds uint16 maximum value: %v", dataLen)
+			}
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(dataLen))
 
 			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
 		default:
@@ -1021,7 +1066,13 @@ func (trafficSelector *TrafficSelectorResponder) marshal() ([]byte, error) {
 		return nil, errors.New("contains no traffic selector for marshalling message")
 	}
 	trafficSelectorData := make([]byte, 4)
-	trafficSelectorData[0] = uint8(len(trafficSelector.TrafficSelectors))
+	selectorCount := len(trafficSelector.TrafficSelectors)
+
+	if selectorCount > math.MaxUint8 {
+		return nil, fmt.Errorf("too many traffic selectors: %d", selectorCount)
+	}
+
+	trafficSelectorData[0] = uint8(selectorCount)
 
 	for _, individualTrafficSelector := range trafficSelector.TrafficSelectors {
 		switch individualTrafficSelector.TSType {
@@ -1044,7 +1095,11 @@ func (trafficSelector *TrafficSelectorResponder) marshal() ([]byte, error) {
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
 
-			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+			dataLen := len(individualTrafficSelectorData)
+			if dataLen > math.MaxUint16 {
+				return nil, fmt.Errorf("individualTrafficSelectorData length exceeds uint16 maximum value: %v", dataLen)
+			}
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(dataLen))
 
 			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
 		case TS_IPV6_ADDR_RANGE:
@@ -1066,7 +1121,11 @@ func (trafficSelector *TrafficSelectorResponder) marshal() ([]byte, error) {
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.StartAddress...)
 			individualTrafficSelectorData = append(individualTrafficSelectorData, individualTrafficSelector.EndAddress...)
 
-			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(len(individualTrafficSelectorData)))
+			dataLen := len(individualTrafficSelectorData)
+			if dataLen > math.MaxUint16 {
+				return nil, fmt.Errorf("individualTrafficSelectorData length exceeds uint16 maximum value: %v", dataLen)
+			}
+			binary.BigEndian.PutUint16(individualTrafficSelectorData[2:4], uint16(dataLen))
 
 			trafficSelectorData = append(trafficSelectorData, individualTrafficSelectorData...)
 		default:
@@ -1157,7 +1216,7 @@ func (trafficSelector *TrafficSelectorResponder) unmarshal(rawData []byte) error
 var _ IKEPayload = &Encrypted{}
 
 type Encrypted struct {
-	NextPayload   uint8
+	NextPayload   IKEPayloadType
 	EncryptedData []byte
 }
 
@@ -1167,7 +1226,8 @@ func (encrypted *Encrypted) marshal() ([]byte, error) {
 	logger.IKELog.Debugln("start marshalling")
 
 	if len(encrypted.EncryptedData) == 0 {
-		logger.IKELog.Warnln("the encrypted data is empty")
+		logger.IKELog.Errorln("encrypted data is empty")
+		return nil, fmt.Errorf("encrypted data is empty")
 	}
 
 	return encrypted.EncryptedData, nil
@@ -1208,8 +1268,11 @@ func (configuration *Configuration) marshal() ([]byte, error) {
 		individualConfigurationAttributeData := make([]byte, 4)
 
 		binary.BigEndian.PutUint16(individualConfigurationAttributeData[0:2], (attribute.Type & 0x7fff))
-		binary.BigEndian.PutUint16(individualConfigurationAttributeData[2:4], uint16(len(attribute.Value)))
-
+		attributeLen := len(attribute.Value)
+		if attributeLen > math.MaxUint16 {
+			return nil, fmt.Errorf("attribute value length exceeds uint16 limit: %d", attributeLen)
+		}
+		binary.BigEndian.PutUint16(individualConfigurationAttributeData[2:4], uint16(attributeLen))
 		individualConfigurationAttributeData = append(individualConfigurationAttributeData, attribute.Value...)
 
 		configurationData = append(configurationData, individualConfigurationAttributeData...)
@@ -1285,8 +1348,11 @@ func (eap *EAP) marshal() ([]byte, error) {
 		eapData = append(eapData, eapTypeData...)
 	}
 
-	binary.BigEndian.PutUint16(eapData[2:4], uint16(len(eapData)))
-
+	eapDataLen := len(eapData)
+	if eapDataLen > math.MaxUint16 {
+		return nil, fmt.Errorf("eap data length exceeds uint16 limit: %d", eapDataLen)
+	}
+	binary.BigEndian.PutUint16(eapData[2:4], uint16(eapDataLen))
 	return eapData, nil
 }
 
@@ -1316,7 +1382,7 @@ func (eap *EAP) unmarshal(rawData []byte) error {
 			return nil
 		}
 
-		eapType := rawData[4]
+		eapType := EAPType(rawData[4])
 		var eapTypeData EAPTypeFormat
 
 		switch eapType {
@@ -1370,7 +1436,7 @@ func (eapIdentity *EAPIdentity) marshal() ([]byte, error) {
 		return nil, errors.New("EAP identity is empty")
 	}
 
-	eapIdentityData := []byte{EAPTypeIdentity}
+	eapIdentityData := []byte{byte(EAPTypeIdentity)}
 	eapIdentityData = append(eapIdentityData, eapIdentity.IdentityData...)
 
 	return eapIdentityData, nil
@@ -1403,7 +1469,7 @@ func (eapNotification *EAPNotification) marshal() ([]byte, error) {
 		return nil, errors.New("EAP notification is empty")
 	}
 
-	eapNotificationData := []byte{EAPTypeNotification}
+	eapNotificationData := []byte{byte(EAPTypeNotification)}
 	eapNotificationData = append(eapNotificationData, eapNotification.NotificationData...)
 
 	return eapNotificationData, nil
@@ -1436,7 +1502,7 @@ func (eapNak *EAPNak) marshal() ([]byte, error) {
 		return nil, errors.New("EAP nak is empty")
 	}
 
-	eapNakData := []byte{EAPTypeNak}
+	eapNakData := []byte{byte(EAPTypeNak)}
 	eapNakData = append(eapNakData, eapNak.NakData...)
 
 	return eapNakData, nil

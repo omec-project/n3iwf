@@ -15,6 +15,8 @@ import (
 	"github.com/omec-project/ngap/ngapType"
 )
 
+// N3IWFAMF represents an AMF context for N3IWF
+// Holds SCTP connection, AMF info, and UE associations
 type N3IWFAMF struct {
 	SCTPAddr              string
 	SCTPConn              *sctp.SCTPConn
@@ -26,9 +28,10 @@ type N3IWFAMF struct {
 	// Overload related
 	AMFOverloadContent *AMFOverloadContent
 	// Relative Context
-	N3iwfRanUeList map[int64]*N3IWFRanUe // ranUeNgapId as key
+	N3iwfRanUeList map[int64]RanUe // ranUeNgapId as key
 }
 
+// AMFTNLAssociationItem holds TNL association info
 type AMFTNLAssociationItem struct {
 	Ipv4                   string
 	Ipv6                   string
@@ -36,32 +39,39 @@ type AMFTNLAssociationItem struct {
 	TNLAddressWeightFactor *int64
 }
 
+// AMFOverloadContent holds overload info for AMF
 type AMFOverloadContent struct {
 	Action     *ngapType.OverloadAction
 	TrafficInd *int64
 	NSSAIList  []SliceOverloadItem
 }
 
+// SliceOverloadItem holds overload info for a slice
 type SliceOverloadItem struct {
 	SNssaiList []ngapType.SNSSAI
 	Action     *ngapType.OverloadAction
 	TrafficInd *int64
 }
 
+// init initializes the N3IWFAMF struct
 func (amf *N3IWFAMF) init(sctpAddr string, conn *sctp.SCTPConn) {
 	amf.SCTPAddr = sctpAddr
 	amf.SCTPConn = conn
 	amf.AMFTNLAssociationList = make(map[string]*AMFTNLAssociationItem)
-	amf.N3iwfRanUeList = make(map[int64]*N3IWFRanUe)
+	amf.N3iwfRanUeList = make(map[int64]RanUe)
 }
 
-func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) *N3IWFRanUe {
-	if ue, ok := amf.N3iwfRanUeList[id]; ok {
-		return ue
+// FindUeByAmfUeNgapID returns RanUe by AmfUeNgapId
+func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) RanUe {
+	for _, ranUe := range amf.N3iwfRanUeList {
+		if ranUe.GetSharedCtx().AmfUeNgapId == id {
+			return ranUe
+		}
 	}
 	return nil
 }
 
+// RemoveAllRelatedUe removes all UEs related to this AMF
 func (amf *N3IWFAMF) RemoveAllRelatedUe() error {
 	for id, ranUe := range amf.N3iwfRanUeList {
 		if err := ranUe.Remove(); err != nil {
@@ -72,23 +82,35 @@ func (amf *N3IWFAMF) RemoveAllRelatedUe() error {
 	return nil
 }
 
+// tnlAssocKey generates a unique key for TNL association map
+func tnlAssocKey(v4, v6 string) string {
+	return v4 + ":" + v6
+}
+
+// AddAMFTNLAssociationItem adds a TNL association item
 func (amf *N3IWFAMF) AddAMFTNLAssociationItem(info ngapType.CPTransportLayerInformation) *AMFTNLAssociationItem {
 	item := &AMFTNLAssociationItem{}
 	item.Ipv4, item.Ipv6 = ngapConvert.IPAddressToString(*info.EndpointIPAddress)
-	amf.AMFTNLAssociationList[item.Ipv4+item.Ipv6] = item
+	key := tnlAssocKey(item.Ipv4, item.Ipv6)
+	amf.AMFTNLAssociationList[key] = item
 	return item
 }
 
+// FindAMFTNLAssociationItem finds a TNL association item
 func (amf *N3IWFAMF) FindAMFTNLAssociationItem(info ngapType.CPTransportLayerInformation) *AMFTNLAssociationItem {
 	v4, v6 := ngapConvert.IPAddressToString(*info.EndpointIPAddress)
-	return amf.AMFTNLAssociationList[v4+v6]
+	key := tnlAssocKey(v4, v6)
+	return amf.AMFTNLAssociationList[key]
 }
 
+// DeleteAMFTNLAssociationItem deletes a TNL association item
 func (amf *N3IWFAMF) DeleteAMFTNLAssociationItem(info ngapType.CPTransportLayerInformation) {
 	v4, v6 := ngapConvert.IPAddressToString(*info.EndpointIPAddress)
-	delete(amf.AMFTNLAssociationList, v4+v6)
+	key := tnlAssocKey(v4, v6)
+	delete(amf.AMFTNLAssociationList, key)
 }
 
+// StartOverload sets overload content for AMF
 func (amf *N3IWFAMF) StartOverload(
 	resp *ngapType.OverloadResponse, trafloadInd *ngapType.TrafficLoadReductionIndication,
 	nssai *ngapType.OverloadStartNSSAIList,
@@ -122,12 +144,13 @@ func (amf *N3IWFAMF) StartOverload(
 	return amf.AMFOverloadContent
 }
 
+// StopOverload clears overload content
 func (amf *N3IWFAMF) StopOverload() {
 	amf.AMFOverloadContent = nil
 }
 
-// FindAvailableAMFByCompareGUAMI compares the incoming GUAMI with AMF served GUAMI
-// and returns if this AMF is available for UE
+// FindAvailableAMFByCompareGUAMI compares incoming GUAMI with AMF served GUAMI
+// Returns true if AMF is available for UE
 func (amf *N3IWFAMF) FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI *ngapType.GUAMI) bool {
 	for _, amfServedGUAMI := range amf.ServedGUAMIList.List {
 		codedAMFServedGUAMI, err := aper.MarshalWithParams(&amfServedGUAMI.GUAMI, "valueExt")
@@ -138,20 +161,20 @@ func (amf *N3IWFAMF) FindAvailableAMFByCompareGUAMI(ueSpecifiedGUAMI *ngapType.G
 		if err != nil {
 			return false
 		}
-		if !bytes.Equal(codedAMFServedGUAMI, codedUESpecifiedGUAMI) {
-			continue
+		if bytes.Equal(codedAMFServedGUAMI, codedUESpecifiedGUAMI) {
+			return true
 		}
-		return true
 	}
 	return false
 }
 
-func (amf *N3IWFAMF) FindAvalibleAMFByCompareSelectedPLMNId(ueSpecifiedSelectedPLMNId *ngapType.PLMNIdentity) bool {
+// FindAvailableAMFByCompareSelectedPLMNId compares incoming PLMNId with AMF supported PLMNId
+// Returns true if AMF supports the selected PLMNId
+func (amf *N3IWFAMF) FindAvailableAMFByCompareSelectedPLMNId(ueSpecifiedSelectedPLMNId *ngapType.PLMNIdentity) bool {
 	for _, amfServedPLMNId := range amf.PLMNSupportList.List {
-		if !bytes.Equal(amfServedPLMNId.PLMNIdentity.Value, ueSpecifiedSelectedPLMNId.Value) {
-			continue
+		if bytes.Equal(amfServedPLMNId.PLMNIdentity.Value, ueSpecifiedSelectedPLMNId.Value) {
+			return true
 		}
-		return true
 	}
 	return false
 }

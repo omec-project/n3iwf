@@ -7,30 +7,25 @@ package message
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
 	"net"
-
-	"github.com/omec-project/n3iwf/logger"
 )
 
-func (ikeMessage *IKEMessage) BuildIKEHeader(
-	initiatorSPI uint64,
-	responsorSPI uint64,
-	exchangeType uint8,
-	flags uint8,
-	messageID uint32,
-) {
-	ikeMessage.InitiatorSPI = initiatorSPI
-	ikeMessage.ResponderSPI = responsorSPI
-	ikeMessage.Version = 0x20
-	ikeMessage.ExchangeType = exchangeType
-	ikeMessage.Flags = flags
-	ikeMessage.MessageID = messageID
+// Utility: assign slice directly if empty, else append
+func assignOrAppend(dst, src []byte) []byte {
+	if len(dst) == 0 {
+		return src
+	}
+	return append(dst, src...)
 }
 
 func (container *IKEPayloadContainer) Reset() {
 	*container = nil
 }
 
+// Notification
 func (container *IKEPayloadContainer) BuildNotification(
 	protocolID uint8,
 	notifyMessageType uint16,
@@ -40,54 +35,60 @@ func (container *IKEPayloadContainer) BuildNotification(
 	notification := new(Notification)
 	notification.ProtocolID = protocolID
 	notification.NotifyMessageType = notifyMessageType
-	notification.SPI = append(notification.SPI, spi...)
-	notification.NotificationData = append(notification.NotificationData, notificationData...)
+	notification.SPI = assignOrAppend(nil, spi)
+	notification.NotificationData = assignOrAppend(nil, notificationData)
 	*container = append(*container, notification)
 }
 
+// Certificate
 func (container *IKEPayloadContainer) BuildCertificate(certificateEncode uint8, certificateData []byte) {
 	certificate := new(Certificate)
 	certificate.CertificateEncoding = certificateEncode
-	certificate.CertificateData = append(certificate.CertificateData, certificateData...)
+	certificate.CertificateData = assignOrAppend(nil, certificateData)
 	*container = append(*container, certificate)
 }
 
+// Encrypted
 func (container *IKEPayloadContainer) BuildEncrypted(nextPayload IKEPayloadType, encryptedData []byte) *Encrypted {
 	encrypted := new(Encrypted)
-	encrypted.NextPayload = uint8(nextPayload)
-	encrypted.EncryptedData = append(encrypted.EncryptedData, encryptedData...)
+	encrypted.NextPayload = nextPayload
+	encrypted.EncryptedData = assignOrAppend(nil, encryptedData)
 	*container = append(*container, encrypted)
 	return encrypted
 }
 
+// Key Exchange
 func (container *IKEPayloadContainer) BuildKeyExchange(diffiehellmanGroup uint16, keyExchangeData []byte) {
 	keyExchange := new(KeyExchange)
 	keyExchange.DiffieHellmanGroup = diffiehellmanGroup
-	keyExchange.KeyExchangeData = append(keyExchange.KeyExchangeData, keyExchangeData...)
+	keyExchange.KeyExchangeData = assignOrAppend(nil, keyExchangeData)
 	*container = append(*container, keyExchange)
 }
 
+// Identification
 func (container *IKEPayloadContainer) BuildIdentificationInitiator(idType uint8, idData []byte) {
 	identification := new(IdentificationInitiator)
 	identification.IDType = idType
-	identification.IDData = append(identification.IDData, idData...)
+	identification.IDData = assignOrAppend(nil, idData)
 	*container = append(*container, identification)
 }
 
 func (container *IKEPayloadContainer) BuildIdentificationResponder(idType uint8, idData []byte) {
 	identification := new(IdentificationResponder)
 	identification.IDType = idType
-	identification.IDData = append(identification.IDData, idData...)
+	identification.IDData = assignOrAppend(nil, idData)
 	*container = append(*container, identification)
 }
 
+// Authentication
 func (container *IKEPayloadContainer) BuildAuthentication(authenticationMethod uint8, authenticationData []byte) {
 	authentication := new(Authentication)
 	authentication.AuthenticationMethod = authenticationMethod
-	authentication.AuthenticationData = append(authentication.AuthenticationData, authenticationData...)
+	authentication.AuthenticationData = assignOrAppend(nil, authenticationData)
 	*container = append(*container, authentication)
 }
 
+// Configuration
 func (container *IKEPayloadContainer) BuildConfiguration(configurationType uint8) *Configuration {
 	configuration := new(Configuration)
 	configuration.ConfigurationType = configurationType
@@ -105,26 +106,28 @@ func (container *ConfigurationAttributeContainer) BuildConfigurationAttribute(
 ) {
 	configurationAttribute := new(IndividualConfigurationAttribute)
 	configurationAttribute.Type = attributeType
-	configurationAttribute.Value = append(configurationAttribute.Value, attributeValue...)
+	configurationAttribute.Value = assignOrAppend(nil, attributeValue)
 	*container = append(*container, configurationAttribute)
 }
 
+// Nonce
 func (container *IKEPayloadContainer) BuildNonce(nonceData []byte) {
 	nonce := new(Nonce)
-	nonce.NonceData = append(nonce.NonceData, nonceData...)
+	nonce.NonceData = assignOrAppend(nil, nonceData)
 	*container = append(*container, nonce)
 }
 
+// Traffic Selector
 func (container *IKEPayloadContainer) BuildTrafficSelectorInitiator() *TrafficSelectorInitiator {
-	trafficSelectorInitiator := new(TrafficSelectorInitiator)
-	*container = append(*container, trafficSelectorInitiator)
-	return trafficSelectorInitiator
+	tsInitiator := new(TrafficSelectorInitiator)
+	*container = append(*container, tsInitiator)
+	return tsInitiator
 }
 
 func (container *IKEPayloadContainer) BuildTrafficSelectorResponder() *TrafficSelectorResponder {
-	trafficSelectorResponder := new(TrafficSelectorResponder)
-	*container = append(*container, trafficSelectorResponder)
-	return trafficSelectorResponder
+	tsResponder := new(TrafficSelectorResponder)
+	*container = append(*container, tsResponder)
+	return tsResponder
 }
 
 func (container *IndividualTrafficSelectorContainer) Reset() {
@@ -139,20 +142,21 @@ func (container *IndividualTrafficSelectorContainer) BuildIndividualTrafficSelec
 	startAddr []byte,
 	endAddr []byte,
 ) {
-	trafficSelector := new(IndividualTrafficSelector)
-	trafficSelector.TSType = tsType
-	trafficSelector.IPProtocolID = ipProtocolID
-	trafficSelector.StartPort = startPort
-	trafficSelector.EndPort = endPort
-	trafficSelector.StartAddress = append(trafficSelector.StartAddress, startAddr...)
-	trafficSelector.EndAddress = append(trafficSelector.EndAddress, endAddr...)
-	*container = append(*container, trafficSelector)
+	ts := new(IndividualTrafficSelector)
+	ts.TSType = tsType
+	ts.IPProtocolID = ipProtocolID
+	ts.StartPort = startPort
+	ts.EndPort = endPort
+	ts.StartAddress = assignOrAppend(nil, startAddr)
+	ts.EndAddress = assignOrAppend(nil, endAddr)
+	*container = append(*container, ts)
 }
 
+// Security Association
 func (container *IKEPayloadContainer) BuildSecurityAssociation() *SecurityAssociation {
-	securityAssociation := new(SecurityAssociation)
-	*container = append(*container, securityAssociation)
-	return securityAssociation
+	sa := new(SecurityAssociation)
+	*container = append(*container, sa)
+	return sa
 }
 
 func (container *ProposalContainer) Reset() {
@@ -163,19 +167,18 @@ func (container *ProposalContainer) BuildProposal(proposalNumber uint8, protocol
 	proposal := new(Proposal)
 	proposal.ProposalNumber = proposalNumber
 	proposal.ProtocolID = protocolID
-	proposal.SPI = append(proposal.SPI, spi...)
+	proposal.SPI = assignOrAppend(nil, spi)
 	*container = append(*container, proposal)
 	return proposal
 }
 
-func (container *IKEPayloadContainer) BuildDeletePayload(
-	protocolID uint8, SPISize uint8, numberOfSPI uint16, SPIs []byte,
-) {
+// Delete Payload
+func (container *IKEPayloadContainer) BuildDeletePayload(protocolID uint8, spiSize uint8, numberOfSPI uint16, spis []uint32) {
 	deletePayload := new(Delete)
 	deletePayload.ProtocolID = protocolID
-	deletePayload.SPISize = SPISize
+	deletePayload.SPISize = spiSize
 	deletePayload.NumberOfSPI = numberOfSPI
-	deletePayload.SPIs = SPIs
+	deletePayload.SPIs = spis
 	*container = append(*container, deletePayload)
 }
 
@@ -201,7 +204,7 @@ func (container *TransformContainer) BuildTransform(
 			transform.AttributeValue = *attributeValue
 		} else if len(variableLengthAttributeValue) != 0 {
 			transform.AttributeFormat = AttributeFormatUseTLV
-			transform.VariableLengthAttributeValue = append(transform.VariableLengthAttributeValue, variableLengthAttributeValue...)
+			transform.VariableLengthAttributeValue = assignOrAppend(nil, variableLengthAttributeValue)
 		} else {
 			return
 		}
@@ -211,6 +214,7 @@ func (container *TransformContainer) BuildTransform(
 	*container = append(*container, transform)
 }
 
+// EAP
 func (container *IKEPayloadContainer) BuildEAP(code uint8, identifier uint8) *EAP {
 	eap := new(EAP)
 	eap.Code = code
@@ -237,7 +241,7 @@ func (container *EAPTypeDataContainer) BuildEAPExpanded(vendorID uint32, vendorT
 	eapExpanded := new(EAPExpanded)
 	eapExpanded.VendorID = vendorID
 	eapExpanded.VendorType = vendorType
-	eapExpanded.VendorData = append(eapExpanded.VendorData, vendorData...)
+	eapExpanded.VendorData = assignOrAppend(nil, vendorData)
 	*container = append(*container, eapExpanded)
 }
 
@@ -246,52 +250,47 @@ func (container *IKEPayloadContainer) BuildEAP5GStart(identifier uint8) {
 	eap.EAPTypeData.BuildEAPExpanded(VendorID3GPP, VendorTypeEAP5G, []byte{EAP5GType5GStart, EAP5GSpareValue})
 }
 
-func (container *IKEPayloadContainer) BuildEAP5GNAS(identifier uint8, nasPDU []byte) {
+func (container *IKEPayloadContainer) BuildEAP5GNAS(identifier uint8, nasPDU []byte) error {
 	if len(nasPDU) == 0 {
-		logger.IKELog.Error("NASPDU is nil")
-		return
+		return errors.New("NASPDU is nil")
 	}
-
 	header := make([]byte, 4)
-
-	// Message ID
 	header[0] = EAP5GType5GNAS
-	// NASPDU length (2 octets)
+	if len(nasPDU) > math.MaxUint16 {
+		return fmt.Errorf("nasPDU length exceeds uint16 limit: %d", len(nasPDU))
+	}
 	binary.BigEndian.PutUint16(header[2:4], uint16(len(nasPDU)))
 	vendorData := append(header, nasPDU...)
-
 	eap := container.BuildEAP(EAPCodeRequest, identifier)
 	eap.EAPTypeData.BuildEAPExpanded(VendorID3GPP, VendorTypeEAP5G, vendorData)
+	return nil
 }
 
 func (container *IKEPayloadContainer) BuildNotify5G_QOS_INFO(pduSessionID uint8,
-	qfiList []uint8, isDefault bool, isDSCPSpecified bool, DSCP uint8,
-) {
-	notifyData := make([]byte, 1) // For length
-	// Append PDU session ID
-	notifyData = append(notifyData, pduSessionID)
-	// Append QFI list length
-	notifyData = append(notifyData, uint8(len(qfiList)))
-	// Append QFI list
+	qfiList []uint8, isDefault bool, isDSCPSpecified bool, dscp uint8,
+) error {
+	if len(qfiList) > math.MaxUint8 {
+		return fmt.Errorf("qfiList is too long")
+	}
+	notifyData := []byte{0, pduSessionID, uint8(len(qfiList))}
 	notifyData = append(notifyData, qfiList...)
-	// Append default and differentiated service flags
-	var defaultAndDifferentiatedServiceFlags uint8
+	var flags uint8
 	if isDefault {
-		defaultAndDifferentiatedServiceFlags |= NotifyType5G_QOS_INFOBitDCSICheck
+		flags |= NotifyType5G_QOS_INFOBitDCSICheck
 	}
 	if isDSCPSpecified {
-		defaultAndDifferentiatedServiceFlags |= NotifyType5G_QOS_INFOBitDSCPICheck
+		flags |= NotifyType5G_QOS_INFOBitDSCPICheck
 	}
-
-	notifyData = append(notifyData, defaultAndDifferentiatedServiceFlags)
+	notifyData = append(notifyData, flags)
 	if isDSCPSpecified {
-		notifyData = append(notifyData, DSCP)
+		notifyData = append(notifyData, dscp)
 	}
-
-	// Assign length
+	if len(notifyData) > math.MaxUint8 {
+		return fmt.Errorf("notifyData is too long")
+	}
 	notifyData[0] = uint8(len(notifyData))
-
 	container.BuildNotification(TypeNone, Vendor3GPPNotifyType5G_QOS_INFO, nil, notifyData)
+	return nil
 }
 
 func (container *IKEPayloadContainer) BuildNotifyNAS_IP4_ADDRESS(nasIPAddr string) {

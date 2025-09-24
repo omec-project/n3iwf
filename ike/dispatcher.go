@@ -8,47 +8,37 @@ package ike
 import (
 	"net"
 
+	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike/handler"
-	ike_message "github.com/omec-project/n3iwf/ike/message"
+	"github.com/omec-project/n3iwf/ike/message"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/util"
 )
 
-func Dispatch(udpConn *net.UDPConn, localAddr, remoteAddr *net.UDPAddr, msg []byte) {
+// Dispatch routes incoming IKE messages to the appropriate handler based on ExchangeType.
+// It recovers from panics and logs errors.
+func Dispatch(udpConn *net.UDPConn, localAddr, remoteAddr *net.UDPAddr,
+	ikeMessage *message.IKEMessage, msg []byte,
+	ikeSA *context.IKESecurityAssociation,
+) {
 	defer util.RecoverWithLog(logger.IKELog)
 
-	// As specified in RFC 7296 section 3.1, the IKE message send from/to UDP port 4500
-	// should prepend a 4 bytes zero
-	if localAddr.Port == 4500 {
-		for _, i := range msg[:4] {
-			if i != 0 {
-				logger.IKELog.Warnln(
-					"received an IKE packet that does not prepend 4 bytes zero from UDP port 4500," +
-						" this packet may be the UDP encapsulated ESP. The packet will not be handled")
-				return
-			}
-		}
-		msg = msg[4:]
-	}
-
-	ikeMessage := new(ike_message.IKEMessage)
-
-	err := ikeMessage.Decode(msg)
-	if err != nil {
-		logger.IKELog.Error(err)
+	if ikeMessage == nil {
+		logger.IKELog.Warnln("received nil IKEMessage")
 		return
 	}
 
 	switch ikeMessage.ExchangeType {
-	case ike_message.IKE_SA_INIT:
+	case message.IKE_SA_INIT:
 		handler.HandleIKESAINIT(udpConn, localAddr, remoteAddr, ikeMessage, msg)
-	case ike_message.IKE_AUTH:
-		handler.HandleIKEAUTH(udpConn, localAddr, remoteAddr, ikeMessage)
-	case ike_message.CREATE_CHILD_SA:
-		handler.HandleCREATECHILDSA(udpConn, localAddr, remoteAddr, ikeMessage)
-	case ike_message.INFORMATIONAL:
-		handler.HandleInformational(udpConn, localAddr, remoteAddr, ikeMessage)
+	case message.IKE_AUTH:
+		handler.HandleIKEAUTH(udpConn, localAddr, remoteAddr, ikeMessage, ikeSA)
+	case message.CREATE_CHILD_SA:
+		handler.HandleCREATECHILDSA(udpConn, localAddr, remoteAddr, ikeMessage, ikeSA)
+	case message.INFORMATIONAL:
+		handler.HandleInformational(udpConn, localAddr, remoteAddr, ikeMessage, ikeSA)
 	default:
 		logger.IKELog.Warnf("unimplemented IKE message type, exchange type: %d", ikeMessage.ExchangeType)
+		return
 	}
 }

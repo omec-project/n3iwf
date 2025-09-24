@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -24,220 +25,216 @@ import (
 const (
 	ngap_sctp_port           int    = 38412
 	requiredTacLength        int    = 6
-	requiredSstLength        int    = 2
 	requiredSdLength         int    = 6
 	defaultXfrmInterfaceId   uint32 = 7
 	defaultXfrmInterfaceName string = "ipsec"
 )
 
 func InitN3IWFContext() bool {
-	var ok bool
-
-	if factory.N3iwfConfig.Configuration == nil {
-		logger.ContextLog.Errorln("no N3IWF configuration found")
+	n3iwfCfg := factory.N3iwfConfig.Configuration
+	if n3iwfCfg == nil {
+		logger.CtxLog.Errorln("no N3IWF configuration found")
 		return false
 	}
 
-	n3iwfContext := context.N3IWFSelf()
+	n := context.N3IWFSelf()
 
 	// N3IWF NF information
-	n3iwfContext.NfInfo = factory.N3iwfConfig.Configuration.N3iwfInfo
-	if ok = formatSupportedTAList(&n3iwfContext.NfInfo); !ok {
+	n.NfInfo = n3iwfCfg.N3iwfInfo
+	if !formatSupportedTAList(&n.NfInfo) {
 		return false
 	}
 
 	// AMF SCTP addresses
-	if len(factory.N3iwfConfig.Configuration.AmfSctpAddresses) == 0 {
-		logger.ContextLog.Errorln("no AMF specified")
+	if len(n3iwfCfg.AmfSctpAddresses) == 0 {
+		logger.CtxLog.Errorln("no AMF specified")
 		return false
 	}
-	for _, amfAddress := range factory.N3iwfConfig.Configuration.AmfSctpAddresses {
+	for _, amfAddress := range n3iwfCfg.AmfSctpAddresses {
 		amfSCTPAddr := new(sctp.SCTPAddr)
-		// IP addresses
 		for _, ipAddrStr := range amfAddress.IpAddresses {
 			ipAddr, err := net.ResolveIPAddr("ip", ipAddrStr)
 			if err != nil {
-				logger.ContextLog.Errorf("resolve AMF IP address failed: %+v", err)
+				logger.CtxLog.Errorf("resolve AMF IP address failed: %+v", err)
 				return false
 			}
 			amfSCTPAddr.IPAddrs = append(amfSCTPAddr.IPAddrs, *ipAddr)
 		}
-		// Port
 		amfSCTPAddr.Port = amfAddress.Port
 		if amfAddress.Port == 0 {
 			amfSCTPAddr.Port = ngap_sctp_port
 		}
-		// Append to context
-		n3iwfContext.AmfSctpAddresses = append(n3iwfContext.AmfSctpAddresses, amfSCTPAddr)
+		n.AmfSctpAddresses = append(n.AmfSctpAddresses, amfSCTPAddr)
 	}
 
 	// Local SCTP address
-	if factory.N3iwfConfig.Configuration.LocalSctpAddress == "" {
-		logger.ContextLog.Errorln("local SCTP bind address is empty")
+	if !checkEmpty(n3iwfCfg.LocalSctpAddress, "local SCTP bind address is empty") {
 		return false
 	}
 	localSCTPAddr := new(sctp.SCTPAddr)
-	// IP address
-	ipAddr, err := net.ResolveIPAddr("ip", factory.N3iwfConfig.Configuration.LocalSctpAddress)
+	ipAddr, err := net.ResolveIPAddr("ip", n3iwfCfg.LocalSctpAddress)
 	if err != nil {
-		logger.ContextLog.Errorf("resolve local IP address for N2 failed: %+v", err)
+		logger.CtxLog.Errorf("resolve local IP address for N2 failed: %+v", err)
 		return false
 	}
 	localSCTPAddr.IPAddrs = append(localSCTPAddr.IPAddrs, *ipAddr)
-	// Port
 	localSCTPAddr.Port = ngap_sctp_port
-	n3iwfContext.LocalSctpAddress = localSCTPAddr
+	n.LocalSctpAddress = localSCTPAddr
 
 	// IKE bind address
-	if factory.N3iwfConfig.Configuration.IkeBindAddress == "" {
-		logger.ContextLog.Errorln("IKE bind address is empty")
+	if !checkEmpty(n3iwfCfg.IkeBindAddress, "IKE bind address is empty") {
 		return false
 	}
-	n3iwfContext.IkeBindAddress = factory.N3iwfConfig.Configuration.IkeBindAddress
+	n.IkeBindAddress = n3iwfCfg.IkeBindAddress
 
 	// IPSec gateway address
-	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
-		logger.ContextLog.Errorln("IPSec interface address is empty")
+	if !checkEmpty(n3iwfCfg.IpSecAddress, "IPSec interface address is empty") {
 		return false
 	}
-
-	n3iwfIpAddr, _, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
+	n3iwfIpAddr, _, err := net.ParseCIDR(n3iwfCfg.IpSecAddress)
 	if err != nil {
-		logger.ContextLog.Errorf("parse IpSecAddress failed: %+v", err)
+		logger.CtxLog.Errorf("parse IpSecAddress failed: %+v", err)
 		return false
 	}
-	n3iwfContext.IpSecGatewayAddress = n3iwfIpAddr.String()
+	n.IpSecGatewayAddress = n3iwfIpAddr.String()
 
 	// UE IP address range
-	if factory.N3iwfConfig.Configuration.IpSecAddress == "" {
-		logger.ContextLog.Errorln("UE IP address range is empty")
-		return false
-	}
-	_, ueNetworkAddr, err := net.ParseCIDR(factory.N3iwfConfig.Configuration.IpSecAddress)
+	_, ueNetworkAddr, err := net.ParseCIDR(n3iwfCfg.IpSecAddress)
 	if err != nil {
-		logger.ContextLog.Errorf("parse CIDR failed: %+v", err)
+		logger.CtxLog.Errorf("parse CIDR failed: %+v", err)
 		return false
 	}
-	n3iwfContext.Subnet = ueNetworkAddr
+	n.Subnet = ueNetworkAddr
 
 	// GTP bind address
-	if factory.N3iwfConfig.Configuration.GtpBindAddress == "" {
-		logger.ContextLog.Errorln("GTP bind address is empty")
+	if !checkEmpty(n3iwfCfg.GtpBindAddress, "GTP bind address is empty") {
 		return false
 	}
-	n3iwfContext.GtpBindAddress = factory.N3iwfConfig.Configuration.GtpBindAddress
+	n.GtpBindAddress = n3iwfCfg.GtpBindAddress
 
 	// TCP port
-	if factory.N3iwfConfig.Configuration.TcpPort == 0 {
-		logger.ContextLog.Errorln("TCP port is not defined")
+	if n3iwfCfg.TcpPort == 0 {
+		logger.CtxLog.Errorln("TCP port is not defined")
 		return false
 	}
-	n3iwfContext.TcpPort = factory.N3iwfConfig.Configuration.TcpPort
+	n.TcpPort = n3iwfCfg.TcpPort
 
 	// FQDN
-	if factory.N3iwfConfig.Configuration.Fqdn == "" {
-		logger.ContextLog.Errorln("FQDN is empty")
+	if !checkEmpty(n3iwfCfg.Fqdn, "FQDN is empty") {
 		return false
 	}
-	n3iwfContext.Fqdn = factory.N3iwfConfig.Configuration.Fqdn
+	n.Fqdn = n3iwfCfg.Fqdn
 
 	// Private key
-	if factory.N3iwfConfig.Configuration.PrivateKey == "" {
-		logger.ContextLog.Errorln("no private key file path specified")
+	if !checkEmpty(n3iwfCfg.PrivateKey, "no private key file path specified") {
 		return false
 	}
-	content, err := os.ReadFile(factory.N3iwfConfig.Configuration.PrivateKey)
-	if err != nil {
-		logger.ContextLog.Errorf("cannot read private key data from file: %+v", err)
+	content, ok := readFile(n3iwfCfg.PrivateKey, "cannot read private key data from file")
+	if !ok {
 		return false
 	}
 	block, _ := pem.Decode(content)
 	if block == nil {
-		logger.ContextLog.Errorln("parse pem failed")
+		logger.CtxLog.Errorln("parse pem failed")
 		return false
 	}
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		logger.ContextLog.Warnf("parse PKCS8 private key failed: %+v", err)
-		logger.ContextLog.Infoln("parse using PKCS1")
+		logger.CtxLog.Warnf("parse PKCS8 private key failed: %+v", err)
+		logger.CtxLog.Infoln("parse using PKCS1")
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 		if err != nil {
-			logger.ContextLog.Errorf("parse PKCS1 private key failed: %+v", err)
+			logger.CtxLog.Errorf("parse PKCS1 private key failed: %+v", err)
 			return false
 		}
 	}
 	rsaKey, ok := key.(*rsa.PrivateKey)
 	if !ok {
-		logger.ContextLog.Errorln("private key is not an rsa private key")
+		logger.CtxLog.Errorln("private key is not an rsa private key")
 		return false
 	}
-	n3iwfContext.N3iwfPrivateKey = rsaKey
+	n.N3iwfPrivateKey = rsaKey
 
 	// Certificate authority
-	if factory.N3iwfConfig.Configuration.CertificateAuthority == "" {
-		logger.ContextLog.Errorln("no certificate authority file path specified")
+	if !checkEmpty(n3iwfCfg.CertificateAuthority, "no certificate authority file path specified") {
 		return false
 	}
-	content, err = os.ReadFile(factory.N3iwfConfig.Configuration.CertificateAuthority)
-	if err != nil {
-		logger.ContextLog.Errorf("cannot read certificate authority data from file: %+v", err)
+	content, ok = readFile(n3iwfCfg.CertificateAuthority, "cannot read certificate authority data from file")
+	if !ok {
 		return false
 	}
 	block, _ = pem.Decode(content)
 	if block == nil {
-		logger.ContextLog.Errorln("parse pem failed")
+		logger.CtxLog.Errorln("parse pem failed")
 		return false
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		logger.ContextLog.Errorf("parse certificate authority failed: %+v", err)
+		logger.CtxLog.Errorf("parse certificate authority failed: %+v", err)
 		return false
 	}
 	sha1Hash := sha1.New()
 	if _, err := sha1Hash.Write(cert.RawSubjectPublicKeyInfo); err != nil {
-		logger.ContextLog.Errorf("hash function writing failed: %+v", err)
+		logger.CtxLog.Errorf("hash function writing failed: %+v", err)
 		return false
 	}
-	n3iwfContext.CertificateAuthority = sha1Hash.Sum(nil)
+	n.CertificateAuthority = sha1Hash.Sum(nil)
 
 	// Certificate
-	if factory.N3iwfConfig.Configuration.Certificate == "" {
-		logger.ContextLog.Errorln("no certificate file path specified")
+	if !checkEmpty(n3iwfCfg.Certificate, "no certificate file path specified") {
 		return false
 	}
-	content, err = os.ReadFile(factory.N3iwfConfig.Configuration.Certificate)
-	if err != nil {
-		logger.ContextLog.Errorf("cannot read certificate data from file: %+v", err)
+	content, ok = readFile(n3iwfCfg.Certificate, "cannot read certificate data from file")
+	if !ok {
 		return false
 	}
 	block, _ = pem.Decode(content)
 	if block == nil {
-		logger.ContextLog.Errorln("parse pem failed")
+		logger.CtxLog.Errorln("parse pem failed")
 		return false
 	}
-	n3iwfContext.N3iwfCertificate = block.Bytes
+	n.N3iwfCertificate = block.Bytes
 
 	// XFRM related
-	ikeBindIfaceName, err := getInterfaceName(factory.N3iwfConfig.Configuration.IkeBindAddress)
+	ikeBindIfaceName, err := getInterfaceName(n3iwfCfg.IkeBindAddress)
 	if err != nil {
-		logger.ContextLog.Error(err)
+		logger.CtxLog.Error(err)
 		return false
 	}
-	n3iwfContext.XfrmParentIfaceName = ikeBindIfaceName
+	n.XfrmParentIfaceName = ikeBindIfaceName
 
-	n3iwfContext.XfrmInterfaceName = factory.N3iwfConfig.Configuration.XfrmInterfaceName
-	if n3iwfContext.XfrmInterfaceName == "" {
-		n3iwfContext.XfrmInterfaceName = defaultXfrmInterfaceName
-		logger.ContextLog.Warnln("XFRM interface Name is empty, set to default", n3iwfContext.XfrmInterfaceName)
+	n.XfrmInterfaceName = n3iwfCfg.XfrmInterfaceName
+	if n.XfrmInterfaceName == "" {
+		n.XfrmInterfaceName = defaultXfrmInterfaceName
+		logger.CtxLog.Warnln("XFRM interface Name is empty, set to default", n.XfrmInterfaceName)
 	}
 
-	n3iwfContext.XfrmInterfaceId = factory.N3iwfConfig.Configuration.XfrmInterfaceId
-	if n3iwfContext.XfrmInterfaceId == 0 {
-		n3iwfContext.XfrmInterfaceId = defaultXfrmInterfaceId
-		logger.ContextLog.Warnln("XFRM interface id is not defined, set to default value", n3iwfContext.XfrmInterfaceId)
+	n.XfrmInterfaceId = n3iwfCfg.XfrmInterfaceId
+	if n.XfrmInterfaceId == 0 {
+		n.XfrmInterfaceId = defaultXfrmInterfaceId
+		logger.CtxLog.Warnln("XFRM interface id is not defined, set to default value", n.XfrmInterfaceId)
 	}
 
 	return true
+}
+
+// Helper to check empty string config
+func checkEmpty(val, msg string) bool {
+	if val == "" {
+		logger.CtxLog.Errorln(msg)
+		return false
+	}
+	return true
+}
+
+// Helper to read file content
+func readFile(path, errMsg string) ([]byte, bool) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		logger.CtxLog.Errorf("%s: %+v", errMsg, err)
+		return nil, false
+	}
+	return content, true
 }
 
 func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
@@ -247,16 +244,16 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 		// Checking Tac
 		tacLength := len(supportedTAItem.Tac)
 		if tacLength == 0 {
-			logger.ContextLog.Errorln("tac is mandatory")
+			logger.CtxLog.Errorln("tac is mandatory")
 			return false
 		}
 		switch {
 		case tacLength < requiredTacLength:
-			logger.ContextLog.Debugf("detected configuration Tac length < %d", requiredTacLength)
+			logger.CtxLog.Debugf("detected configuration Tac length < %d", requiredTacLength)
 			supportedTAItem.Tac = strings.Repeat("0", 6-len(supportedTAItem.Tac)) + supportedTAItem.Tac
-			logger.ContextLog.Debugf("changed to %s", supportedTAItem.Tac)
+			logger.CtxLog.Debugf("changed to %s", supportedTAItem.Tac)
 		case tacLength > requiredTacLength:
-			logger.ContextLog.Errorf("detected configuration Tac length > %d", requiredTacLength)
+			logger.CtxLog.Errorf("detected configuration Tac length > %d", requiredTacLength)
 			return false
 		}
 
@@ -268,36 +265,31 @@ func formatSupportedTAList(info *context.N3iwfNfInfo) bool {
 				sliceSupportItem := &broadcastPLMNItem.TaiSliceSupportList[sliceListIndex]
 
 				// Sst
-				sstLength := len(sliceSupportItem.Snssai.Sst)
-				if sstLength == 0 {
-					logger.ContextLog.Errorln("sst is mandatory")
+				sst := sliceSupportItem.Snssai.Sst
+				if sst == 0 {
+					logger.CtxLog.Errorln("sst is mandatory")
 					return false
 				}
 
-				if sstLength > requiredSstLength {
-					logger.ContextLog.Errorf("detect configuration sst length > %d", requiredSstLength)
+				if sst > math.MaxUint8 {
+					logger.CtxLog.Errorf("detected configuration sst value (%d) exceeds maximum allowed (%d)", sst, math.MaxUint8)
 					return false
-				}
-				if sstLength < requiredSstLength {
-					logger.ContextLog.Debugf("detect configuration sst length < %d", requiredSstLength)
-					sliceSupportItem.Snssai.Sst = "0" + sliceSupportItem.Snssai.Sst
-					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sst)
 				}
 
 				// Sd
 				if sliceSupportItem.Snssai.Sd == "" {
-					logger.ContextLog.Infoln("Snssai does not include sd")
+					logger.CtxLog.Infoln("Snssai does not include sd")
 					continue
 				}
 				sdLength := len(sliceSupportItem.Snssai.Sd)
 				if sdLength > requiredSdLength {
-					logger.ContextLog.Errorf("detected configuration sd length > %d", requiredSdLength)
+					logger.CtxLog.Errorf("detected configuration sd length > %d", requiredSdLength)
 					return false
 				}
 				if sdLength < requiredSdLength {
-					logger.ContextLog.Debugf("detected configuration sd length < %d", requiredSdLength)
+					logger.CtxLog.Debugf("detected configuration sd length < %d", requiredSdLength)
 					sliceSupportItem.Snssai.Sd = strings.Repeat("0", 6-sdLength) + sliceSupportItem.Snssai.Sd
-					logger.ContextLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
+					logger.CtxLog.Debugf("change to %s", sliceSupportItem.Snssai.Sd)
 				}
 			}
 		}

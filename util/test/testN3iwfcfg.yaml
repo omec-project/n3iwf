@@ -35,7 +35,8 @@ configuration:
       - "127.0.0.1"
 
   ikeBindAddress: "127.0.0.1"
-  ipSecAddress: "192.168.110.1/24"
+  ipSecAddress: 10.0.0.1 # Tunnel IP address of XFRM interface on this N3IWF
+  ueIpAddressRange: 10.0.0.0/24
   xfrmInterfaceName: xfrmi
   xfrmInterfaceId: 1
   nasTcpPort: 20000
@@ -49,6 +50,12 @@ configuration:
   certificateAuthority: "/opt/n3iwf.crt"
   certificate: "/opt/n3iwf.crt"
 
+  # sending dead peer detection message
+  livenessCheck:
+    enable: true # true or false
+    transFreq: 60s # frequency of transmission
+    maxRetryTimes: 4 # the max number of DPD response of UE
+
 logger:
   N3IWF:
     debugLevel: info
@@ -58,3 +65,4 @@ logger:
     debugLevel: info
   Util:
     debugLevel: info
+

@@ -10,66 +10,78 @@ import (
 	"github.com/omec-project/ngap/ngapType"
 )
 
-func AppendPDUSessionResourceSetupListCxtRes(
-	list *ngapType.PDUSessionResourceSetupListCxtRes, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceSetupItemCxtRes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceSetupResponseTransfer = transfer
-	list.List = append(list.List, item)
+// Helper function to append items to lists
+func appendPDUSessionResourceItem(list any, pduSessionID int64, transfer []byte) {
+	switch l := list.(type) {
+	case *ngapType.PDUSessionResourceSetupListCxtRes:
+		item := ngapType.PDUSessionResourceSetupItemCxtRes{
+			PDUSessionID:                            ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceSetupResponseTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceFailedToSetupListCxtRes:
+		item := ngapType.PDUSessionResourceFailedToSetupItemCxtRes{
+			PDUSessionID: ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceSetupUnsuccessfulTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceFailedToSetupListCxtFail:
+		item := ngapType.PDUSessionResourceFailedToSetupItemCxtFail{
+			PDUSessionID: ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceSetupUnsuccessfulTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceSetupListSURes:
+		item := ngapType.PDUSessionResourceSetupItemSURes{
+			PDUSessionID:                            ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceSetupResponseTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceFailedToSetupListSURes:
+		item := ngapType.PDUSessionResourceFailedToSetupItemSURes{
+			PDUSessionID: ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceSetupUnsuccessfulTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceModifyListModRes:
+		item := ngapType.PDUSessionResourceModifyItemModRes{
+			PDUSessionID:                             ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceModifyResponseTransfer: aper.OctetString(transfer),
+		}
+		l.List = append(l.List, item)
+	case *ngapType.PDUSessionResourceFailedToModifyListModRes:
+		item := ngapType.PDUSessionResourceFailedToModifyItemModRes{
+			PDUSessionID: ngapType.PDUSessionID{Value: pduSessionID},
+			PDUSessionResourceModifyUnsuccessfulTransfer: transfer,
+		}
+		l.List = append(l.List, item)
+	}
 }
 
-func AppendPDUSessionResourceFailedToSetupListCxtRes(
-	list *ngapType.PDUSessionResourceFailedToSetupListCxtRes, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceFailedToSetupItemCxtRes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceSetupUnsuccessfulTransfer = transfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceSetupListCxtRes(list *ngapType.PDUSessionResourceSetupListCxtRes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
 
-func AppendPDUSessionResourceFailedToSetupListCxtfail(
-	list *ngapType.PDUSessionResourceFailedToSetupListCxtFail, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceFailedToSetupItemCxtFail{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceSetupUnsuccessfulTransfer = transfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceFailedToSetupListCxtRes(list *ngapType.PDUSessionResourceFailedToSetupListCxtRes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
 
-func AppendPDUSessionResourceSetupListSURes(
-	list *ngapType.PDUSessionResourceSetupListSURes, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceSetupItemSURes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceSetupResponseTransfer = transfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceFailedToSetupListCxtfail(list *ngapType.PDUSessionResourceFailedToSetupListCxtFail, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
 
-func AppendPDUSessionResourceFailedToSetupListSURes(
-	list *ngapType.PDUSessionResourceFailedToSetupListSURes, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceFailedToSetupItemSURes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceSetupUnsuccessfulTransfer = transfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceSetupListSURes(list *ngapType.PDUSessionResourceSetupListSURes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
 
-func AppendPDUSessionResourceModifyListModRes(
-	list *ngapType.PDUSessionResourceModifyListModRes, pduSessionID int64, transfer []byte,
-) {
-	var pduSessionResourceModifyResponseTransfer aper.OctetString = transfer
-	item := ngapType.PDUSessionResourceModifyItemModRes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceModifyResponseTransfer = pduSessionResourceModifyResponseTransfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceFailedToSetupListSURes(list *ngapType.PDUSessionResourceFailedToSetupListSURes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
 
-func AppendPDUSessionResourceFailedToModifyListModRes(
-	list *ngapType.PDUSessionResourceFailedToModifyListModRes, pduSessionID int64, transfer []byte,
-) {
-	item := ngapType.PDUSessionResourceFailedToModifyItemModRes{}
-	item.PDUSessionID.Value = pduSessionID
-	item.PDUSessionResourceModifyUnsuccessfulTransfer = transfer
-	list.List = append(list.List, item)
+func AppendPDUSessionResourceModifyListModRes(list *ngapType.PDUSessionResourceModifyListModRes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
+}
+
+func AppendPDUSessionResourceFailedToModifyListModRes(list *ngapType.PDUSessionResourceFailedToModifyListModRes, pduSessionID int64, transfer []byte) {
+	appendPDUSessionResourceItem(list, pduSessionID, transfer)
 }
