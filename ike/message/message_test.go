@@ -6,29 +6,40 @@ package message
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // Helper function for comparing IKEMessage and byte slices
 func compareIKEMessage(t *testing.T, ikeMsg *IKEMessage, expIKEMsg *IKEMessage, expErr bool, err error) {
 	t.Helper()
 	if expErr {
-		require.Error(t, err)
+		if err == nil {
+			t.Error("Expected error but got none")
+		}
 	} else {
-		require.NoError(t, err)
-		require.Equal(t, expIKEMsg, ikeMsg)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(expIKEMsg, ikeMsg) {
+			t.Errorf("IKEMessage mismatch. got = %+v, want = %+v", ikeMsg, expIKEMsg)
+		}
 	}
 }
 
 func compareEncodeResult(t *testing.T, result []byte, expByte []byte, expErr bool, err error) {
 	t.Helper()
 	if expErr {
-		require.Error(t, err)
+		if err == nil {
+			t.Error("Expected error but got none")
+		}
 	} else {
-		require.NoError(t, err)
-		require.Equal(t, expByte, result)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if !bytes.Equal(expByte, result) {
+			t.Errorf("Encoded bytes mismatch. got = %v, want = %v", result, expByte)
+		}
 	}
 }
 
@@ -525,7 +536,7 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 			},
 		},
 	)
-	require.Equal(t, &IKEMessage{
+	expected := &IKEMessage{
 		IKEHeader: &IKEHeader{
 			InitiatorSPI: 0x000000000006f708,
 			ResponderSPI: 0xc9e2e31f8b64053d,
@@ -553,13 +564,22 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 				},
 			},
 		},
-	}, m)
-	require.False(t, m.IsInitiator())
-	require.True(t, m.IsResponse())
+	}
+	if !reflect.DeepEqual(expected, m) {
+		t.Errorf("NewMessage result mismatch. got = %+v, want = %+v", m, expected)
+	}
+	if m.IsInitiator() {
+		t.Error("Expected IsInitiator() to be false, but got true")
+	}
+	if !m.IsResponse() {
+		t.Error("Expected IsResponse() to be true, but got false")
+	}
 
 	b, err := m.Encode()
-	require.NoError(t, err)
-	require.Equal(t, []byte{
+	if err != nil {
+		t.Errorf("Encode failed: %v", err)
+	}
+	expectedBytes := []byte{
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0xf7, 0x08,
 		0xc9, 0xe2, 0xe3, 0x1f, 0x8b, 0x64, 0x05, 0x3d,
 		0x2e, 0x20, 0x23, 0x20, 0x00, 0x00, 0x00, 0x03,
@@ -574,5 +594,8 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 		0xae, 0x1c, 0x38, 0x25, 0xf4, 0xea, 0xe3, 0x38,
 		0x49, 0x03, 0xf7, 0x24, 0xf4, 0x44, 0x17, 0x0c,
 		0x68, 0x45, 0xca, 0x80,
-	}, b)
+	}
+	if !bytes.Equal(expectedBytes, b) {
+		t.Errorf("Encoded bytes mismatch. got = %v, want = %v", b, expectedBytes)
+	}
 }
