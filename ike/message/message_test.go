@@ -565,7 +565,7 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 			},
 		},
 	}
-	if !reflect.DeepEqual(expected, m) {
+	if !reflect.DeepEqual(m, expected) {
 		t.Errorf("NewMessage result mismatch. got = %+v, want = %+v", m, expected)
 	}
 	if m.IsInitiator() {
@@ -595,7 +595,7 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 		0x49, 0x03, 0xf7, 0x24, 0xf4, 0x44, 0x17, 0x0c,
 		0x68, 0x45, 0xca, 0x80,
 	}
-	if !bytes.Equal(expectedBytes, b) {
+	if !bytes.Equal(b, expectedBytes) {
 		t.Errorf("Encoded bytes mismatch. got = %v, want = %v", b, expectedBytes)
 	}
 }
