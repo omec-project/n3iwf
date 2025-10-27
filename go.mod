@@ -6,7 +6,7 @@ require (
 	github.com/google/gopacket v1.1.19
 	github.com/ishidawataru/sctp v0.0.0-20250829011129-4b890084db30
 	github.com/omec-project/ngap v1.6.1
-	github.com/omec-project/util v1.5.4
+	github.com/omec-project/util v1.5.7
 	github.com/urfave/cli/v3 v3.4.1
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.8.12
