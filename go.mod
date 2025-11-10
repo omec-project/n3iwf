@@ -7,7 +7,7 @@ require (
 	github.com/ishidawataru/sctp v0.0.0-20250829011129-4b890084db30
 	github.com/omec-project/ngap v1.6.1
 	github.com/omec-project/util v1.5.7
-	github.com/urfave/cli/v3 v3.5.0
+	github.com/urfave/cli/v3 v3.6.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.8.12
 	go.uber.org/zap v1.27.0
