@@ -11,7 +11,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.8.12
 	go.uber.org/zap v1.27.0
-	go.yaml.in/yaml/v4 v4.0.0-rc.2
+	go.yaml.in/yaml/v4 v4.0.0-rc.3
 	golang.org/x/net v0.46.0
 	golang.org/x/sys v0.37.0
 )
