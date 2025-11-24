@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/google/gopacket v1.1.19
-	github.com/ishidawataru/sctp v0.0.0-20250829011129-4b890084db30
+	github.com/ishidawataru/sctp v0.0.0-20251114114122-19ddcbc6aae2
 	github.com/omec-project/ngap v1.6.1
 	github.com/omec-project/util v1.5.7
 	github.com/urfave/cli/v3 v3.6.1
