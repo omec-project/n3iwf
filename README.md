@@ -4,6 +4,7 @@ SPDX-FileCopyrightText: 2025 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 [![Go Report Card](https://goreportcard.com/badge/github.com/omec-project/n3iwf)](https://goreportcard.com/report/github.com/omec-project/n3iwf)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/omec-project/n3iwf/badge)](https://scorecard.dev/viewer/?uri=github.com/omec-project/n3iwf)
 
 # N3IWF
 
