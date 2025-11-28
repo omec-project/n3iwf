@@ -100,6 +100,9 @@ make test
 - See [`LICENSES/Apache-2.0.txt`](LICENSES/Apache-2.0.txt) for license details.
 - See [`NOTICE.txt`](NOTICE.txt) for attribution and notices.
 
+## Reach out to us through
+1. #sdcore-dev channel in [Aether Community Slack](https://aether5g-project.slack.com)
+
 ## References
 - [3GPP TS 23.501](https://www.3gpp.org/ftp/Specs/archive/23_series/23.501/)
 - [3GPP TS 23.502](https://www.3gpp.org/ftp/Specs/archive/23_series/23.502/)
