@@ -7,14 +7,13 @@ package service
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
 	"syscall"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike"
 	"github.com/omec-project/n3iwf/ike/handler"
@@ -257,22 +256,88 @@ func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *ne
 
 // constructPacketWithESP builds an IPv4 packet with ESP payload
 func constructPacketWithESP(srcIP, dstIP *net.UDPAddr, espPacket []byte) ([]byte, error) {
-	ipLayer := &layers.IPv4{
-		SrcIP:    srcIP.IP,
-		DstIP:    dstIP.IP,
-		Version:  4,
-		TTL:      64,
-		Protocol: layers.IPProtocolESP,
+	const (
+		ipHeaderLen = 20
+		ipVersion   = 4
+		ipTTL       = 64
+		ipProtoESP  = 50 // ESP protocol number
+	)
+
+	// Validate that both addresses are IPv4 and non-nil
+	srcIPv4 := srcIP.IP.To4()
+	if srcIPv4 == nil {
+		return nil, fmt.Errorf("source address %s is not a valid IPv4 address", srcIP.IP)
 	}
-	buffer := gopacket.NewSerializeBuffer()
-	options := gopacket.SerializeOptions{
-		ComputeChecksums: true,
-		FixLengths:       true,
+	dstIPv4 := dstIP.IP.To4()
+	if dstIPv4 == nil {
+		return nil, fmt.Errorf("destination address %s is not a valid IPv4 address", dstIP.IP)
 	}
-	if err := gopacket.SerializeLayers(buffer, options, ipLayer, gopacket.Payload(espPacket)); err != nil {
-		return nil, fmt.Errorf("error serializing layers: %v", err)
+
+	totalLen := ipHeaderLen + len(espPacket)
+	if totalLen > 65535 {
+		return nil, fmt.Errorf("packet too large: %d bytes", totalLen)
 	}
-	return buffer.Bytes(), nil
+
+	// Build IPv4 header
+	packet := make([]byte, totalLen)
+
+	// Version (4 bits) + IHL (4 bits)
+	packet[0] = (ipVersion << 4) | (ipHeaderLen / 4)
+
+	// Type of Service
+	packet[1] = 0
+
+	// Total Length
+	binary.BigEndian.PutUint16(packet[2:4], uint16(totalLen))
+
+	// Identification
+	binary.BigEndian.PutUint16(packet[4:6], 0)
+
+	// Flags (3 bits) + Fragment Offset (13 bits)
+	binary.BigEndian.PutUint16(packet[6:8], 0)
+
+	// TTL
+	packet[8] = ipTTL
+
+	// Protocol (ESP)
+	packet[9] = ipProtoESP
+
+	// Header Checksum (will be calculated below)
+	packet[10] = 0
+	packet[11] = 0
+
+	// Source IP
+	copy(packet[12:16], srcIPv4)
+
+	// Destination IP
+	copy(packet[16:20], dstIPv4)
+
+	// Calculate and set IP header checksum
+	checksum := calculateIPChecksum(packet[:ipHeaderLen])
+	binary.BigEndian.PutUint16(packet[10:12], checksum)
+
+	// Copy ESP payload
+	copy(packet[ipHeaderLen:], espPacket)
+
+	return packet, nil
+}
+
+// calculateIPChecksum computes the IPv4 header checksum
+func calculateIPChecksum(header []byte) uint16 {
+	var sum uint32
+
+	// Sum all 16-bit words
+	for i := 0; i < len(header); i += 2 {
+		sum += uint32(binary.BigEndian.Uint16(header[i : i+2]))
+	}
+
+	// Add carry bits
+	for sum > 0xffff {
+		sum = (sum & 0xffff) + (sum >> 16)
+	}
+
+	// Return one's complement
+	return ^uint16(sum)
 }
 
 // handleESPPacket sends ESP packet using raw socket
