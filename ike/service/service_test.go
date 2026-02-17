@@ -142,6 +142,54 @@ func TestConstructPacketWithESP_TooLarge(t *testing.T) {
 	}
 }
 
+func TestConstructPacketWithESP_IPv6SourceAddress(t *testing.T) {
+	srcIP := &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 4500}
+	dstIP := &net.UDPAddr{IP: net.ParseIP("10.0.0.50"), Port: 4500}
+	espPayload := []byte{0x01, 0x02, 0x03, 0x04}
+
+	_, err := constructPacketWithESP(srcIP, dstIP, espPayload)
+	if err == nil {
+		t.Error("Expected error for IPv6 source address, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "source address") {
+		t.Errorf("Expected error message to mention 'source address', got: %v", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "not a valid IPv4 address") {
+		t.Errorf("Expected error message to mention 'not a valid IPv4 address', got: %v", err)
+	}
+}
+
+func TestConstructPacketWithESP_IPv6DestinationAddress(t *testing.T) {
+	srcIP := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 4500}
+	dstIP := &net.UDPAddr{IP: net.ParseIP("2001:db8::2"), Port: 4500}
+	espPayload := []byte{0x01, 0x02, 0x03, 0x04}
+
+	_, err := constructPacketWithESP(srcIP, dstIP, espPayload)
+	if err == nil {
+		t.Error("Expected error for IPv6 destination address, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "destination address") {
+		t.Errorf("Expected error message to mention 'destination address', got: %v", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "not a valid IPv4 address") {
+		t.Errorf("Expected error message to mention 'not a valid IPv4 address', got: %v", err)
+	}
+}
+
+func TestConstructPacketWithESP_BothIPv6Addresses(t *testing.T) {
+	srcIP := &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 4500}
+	dstIP := &net.UDPAddr{IP: net.ParseIP("2001:db8::2"), Port: 4500}
+	espPayload := []byte{0x01, 0x02, 0x03, 0x04}
+
+	_, err := constructPacketWithESP(srcIP, dstIP, espPayload)
+	if err == nil {
+		t.Error("Expected error for both IPv6 addresses, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "not a valid IPv4 address") {
+		t.Errorf("Expected error message to mention 'not a valid IPv4 address', got: %v", err)
+	}
+}
+
 func TestValidateConstructedPacket(t *testing.T) {
 	srcIP := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 4500}
 	dstIP := &net.UDPAddr{IP: net.ParseIP("10.0.0.50"), Port: 4500}

@@ -263,6 +263,16 @@ func constructPacketWithESP(srcIP, dstIP *net.UDPAddr, espPacket []byte) ([]byte
 		ipProtoESP  = 50 // ESP protocol number
 	)
 
+	// Validate that both addresses are IPv4 and non-nil
+	srcIPv4 := srcIP.IP.To4()
+	if srcIPv4 == nil {
+		return nil, fmt.Errorf("source address %s is not a valid IPv4 address", srcIP.IP)
+	}
+	dstIPv4 := dstIP.IP.To4()
+	if dstIPv4 == nil {
+		return nil, fmt.Errorf("destination address %s is not a valid IPv4 address", dstIP.IP)
+	}
+
 	totalLen := ipHeaderLen + len(espPacket)
 	if totalLen > 65535 {
 		return nil, fmt.Errorf("packet too large: %d bytes", totalLen)
@@ -297,10 +307,10 @@ func constructPacketWithESP(srcIP, dstIP *net.UDPAddr, espPacket []byte) ([]byte
 	packet[11] = 0
 
 	// Source IP
-	copy(packet[12:16], srcIP.IP.To4())
+	copy(packet[12:16], srcIPv4)
 
 	// Destination IP
-	copy(packet[16:20], dstIP.IP.To4())
+	copy(packet[16:20], dstIPv4)
 
 	// Calculate and set IP header checksum
 	checksum := calculateIPChecksum(packet[:ipHeaderLen])
