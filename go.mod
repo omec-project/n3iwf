@@ -3,7 +3,6 @@ module github.com/omec-project/n3iwf
 go 1.24.0
 
 require (
-	github.com/google/gopacket v1.1.19
 	github.com/ishidawataru/sctp v0.0.0-20251114114122-19ddcbc6aae2
 	github.com/omec-project/ngap v1.8.0
 	github.com/omec-project/util v1.7.0
