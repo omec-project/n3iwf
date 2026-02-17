@@ -1,22 +1,9 @@
-# SPDX-FileCopyrightText: 2024 Intel Corporation
+# SPDX-FileCopyrightText: 2024-present Intel Corporation
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 FROM golang:1.26.0-bookworm@sha256:eae3cdfa040d0786510a5959d36a836978724d03b34a166ba2e0e198baac9196 AS builder
-
-RUN apt-get update && \
-    apt-get -y install --no-install-recommends \
-    apt-transport-https \
-    ca-certificates \
-    gcc \
-    cmake \
-    autoconf \
-    libtool \
-    pkg-config \
-    libmnl-dev \
-    libyaml-dev && \
-    apt-get clean
 
 WORKDIR $GOPATH/src/n3iwf
 
