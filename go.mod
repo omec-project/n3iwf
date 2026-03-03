@@ -1,6 +1,6 @@
 module github.com/omec-project/n3iwf
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/ishidawataru/sctp v0.0.0-20251114114122-19ddcbc6aae2
@@ -11,7 +11,7 @@ require (
 	github.com/wmnsk/go-gtp v0.8.12
 	go.uber.org/zap v1.27.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.4
-	golang.org/x/net v0.50.0
+	golang.org/x/net v0.51.0
 	golang.org/x/sys v0.41.0
 )
 
