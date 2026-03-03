@@ -37,7 +37,8 @@ func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 // newGreConn sets up a GRE IPv4 packet connection socket.
 func newGreConn(n3iwfCtx *context.N3IWFContext) error {
 	listenAddr := n3iwfCtx.IpSecGatewayAddress
-	conn, err := net.ListenPacket("ip4:gre", listenAddr)
+	var lc net.ListenConfig
+	conn, err := lc.ListenPacket(ctx.Background(), "ip4:gre", listenAddr)
 	if err != nil {
 		logger.NWuUPLog.Errorf("error setting GRE listen socket on %s: %+v", listenAddr, err)
 		return fmt.Errorf("error setting GRE listen socket on %s", listenAddr)
