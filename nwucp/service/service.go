@@ -7,6 +7,7 @@ package service
 
 import (
 	"bufio"
+	ctx "context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -25,7 +26,8 @@ var tcpListener net.Listener
 // Run sets up N3IWF NAS for UE to forward NAS message to AMF
 func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	nasTcpAddress := fmt.Sprintf("%s:%d", n3iwfCtx.IpSecGatewayAddress, n3iwfCtx.TcpPort)
-	listener, err := net.Listen("tcp", nasTcpAddress)
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx.Background(), "tcp", nasTcpAddress)
 	if err != nil {
 		logger.NWuCPLog.Errorf("failed to listen on TCP address: %+v", err)
 		return err
