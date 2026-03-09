@@ -56,11 +56,6 @@ func init() {
 	}
 }
 
-// StrToType returns the DHType for a given algorithm string
-func StrToType(algo string) DHType {
-	return dhTypes[algo]
-}
-
 // DecodeTransform decodes a message.Transform to a DHType
 func DecodeTransform(transform *message.Transform) DHType {
 	f, ok := dhString[transform.TransformID]

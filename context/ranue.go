@@ -84,13 +84,6 @@ type RanUeSharedCtx struct {
 	PduSessResRelState               PduSessResRelState
 }
 
-// NewRanUeSharedCtx returns a new RanUeSharedCtx with initialized maps
-func NewRanUeSharedCtx() *RanUeSharedCtx {
-	return &RanUeSharedCtx{
-		PduSessionList: make(map[int64]*PDUSession),
-	}
-}
-
 // PDUSession holds PDU session information
 
 type PDUSession struct {

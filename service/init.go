@@ -106,19 +106,6 @@ func setModuleLogLevel(moduleCfg *utilLogger.LogSetting, logObj *zap.SugaredLogg
 	}
 }
 
-// FilterCli returns CLI args for flags
-func (n3iwf *N3IWF) FilterCli(c *cli.Command) (args []string) {
-	for _, flag := range n3iwf.GetCliCmd() {
-		name := flag.Names()[0]
-		value := fmt.Sprint(c.Generic(name))
-		if value == "" {
-			continue
-		}
-		args = append(args, "--"+name, value)
-	}
-	return args
-}
-
 // Start launches all services and handles graceful shutdown
 func (n3iwf *N3IWF) Start() {
 	logger.InitLog.Infoln("server started")

@@ -51,23 +51,6 @@ func isPDUSessionListValid(listLen int) bool {
 	return listLen <= MaxNumOfPDUSessions
 }
 
-// partOfNGInterface: if reset type is "reset all", set it to nil TS 38.413 9.2.6.11
-func SendNGReset(
-	amf *context.N3IWFAMF,
-	cause ngapType.Cause,
-	partOfNGInterface *ngapType.UEAssociatedLogicalNGConnectionList,
-) {
-	logger.NgapLog.Infoln("send NG Reset")
-
-	pkt, err := BuildNGReset(cause, partOfNGInterface)
-	if err != nil {
-		logger.NgapLog.Errorf("build NGReset failed: %s", err.Error())
-		return
-	}
-
-	SendToAmf(amf, pkt)
-}
-
 func SendNGResetAcknowledge(
 	amf *context.N3IWFAMF,
 	partOfNGInterface *ngapType.UEAssociatedLogicalNGConnectionList,
@@ -148,22 +131,6 @@ func SendUEContextModificationResponse(
 	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
 }
 
-func SendUEContextModificationFailure(
-	ranUe context.RanUe,
-	cause ngapType.Cause,
-	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
-) {
-	logger.NgapLog.Infoln("send UE Context Modification Failure")
-
-	pkt, err := BuildUEContextModificationFailure(ranUe, cause, criticalityDiagnostics)
-	if err != nil {
-		logger.NgapLog.Errorf("build UE Context Modification Failure failed: %+v", err)
-		return
-	}
-
-	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
-}
-
 func SendUEContextReleaseComplete(
 	ranUe context.RanUe,
 	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
@@ -228,27 +195,6 @@ func SendUplinkNASTransport(
 	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
 }
 
-func SendNASNonDeliveryIndication(
-	ranUe context.RanUe,
-	nasPdu []byte,
-	cause ngapType.Cause,
-) {
-	logger.NgapLog.Infoln("send NAS NonDelivery Indication")
-
-	if len(nasPdu) == 0 {
-		logger.NgapLog.Errorln("NAS Pdu is nil")
-		return
-	}
-
-	pkt, err := BuildNASNonDeliveryIndication(ranUe, nasPdu, cause)
-	if err != nil {
-		logger.NgapLog.Errorf("build Uplink NAS Transport failed: %+v", err)
-		return
-	}
-
-	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
-}
-
 func SendPDUSessionResourceSetupResponse(
 	ranUe context.RanUe,
 	responseList *ngapType.PDUSessionResourceSetupListSURes,
@@ -288,49 +234,6 @@ func SendPDUSessionResourceModifyResponse(
 		logger.NgapLog.Errorf("build PDU Session Resource Modify Response failed: %+v", err)
 		return
 	}
-	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
-}
-
-func SendPDUSessionResourceModifyIndication(
-	ranUe context.RanUe,
-	modifyList []ngapType.PDUSessionResourceModifyItemModInd,
-) {
-	logger.NgapLog.Infoln("send PDU Session Resource Modify Indication")
-
-	if ranUe == nil {
-		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
-		return
-	}
-	if len(modifyList) == 0 {
-		logger.NgapLog.Errorln("PDU Session Resource Modify Indication List is empty. This message shall contain at least one Item")
-		return
-	}
-	pkt, err := BuildPDUSessionResourceModifyIndication(ranUe, modifyList)
-	if err != nil {
-		logger.NgapLog.Errorf("build PDU Session Resource Modify Indication failed : %+v", err)
-		return
-	}
-	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
-}
-
-func SendPDUSessionResourceNotify(
-	ranUe context.RanUe,
-	notiList *ngapType.PDUSessionResourceNotifyList,
-	relList *ngapType.PDUSessionResourceReleasedListNot,
-) {
-	logger.NgapLog.Infoln("send PDU Session Resource Notify")
-
-	if ranUe == nil {
-		logger.NgapLog.Errorln("UE context is nil, this information is mandatory")
-		return
-	}
-
-	pkt, err := BuildPDUSessionResourceNotify(ranUe, notiList, relList)
-	if err != nil {
-		logger.NgapLog.Errorf("build PDUSession Resource Notify failed: %+v", err)
-		return
-	}
-
 	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
 }
 
@@ -407,21 +310,6 @@ func SendErrorIndicationWithSctpConn(
 	}
 }
 
-func SendUERadioCapabilityCheckResponse(
-	amf *context.N3IWFAMF,
-	ranUe context.RanUe,
-	diagnostics *ngapType.CriticalityDiagnostics,
-) {
-	logger.NgapLog.Infoln("send UE Radio Capability Check Response")
-
-	pkt, err := BuildUERadioCapabilityCheckResponse(ranUe, diagnostics)
-	if err != nil {
-		logger.NgapLog.Errorf("build UERadio Capability Check Response failed: %+v", err)
-		return
-	}
-	SendToAmf(ranUe.GetSharedCtx().AMF, pkt)
-}
-
 func SendAMFConfigurationUpdateAcknowledge(
 	amf *context.N3IWFAMF,
 	setupList *ngapType.AMFTNLAssociationSetupList,
@@ -433,22 +321,6 @@ func SendAMFConfigurationUpdateAcknowledge(
 	pkt, err := BuildAMFConfigurationUpdateAcknowledge(setupList, failList, diagnostics)
 	if err != nil {
 		logger.NgapLog.Errorf("build AMF Configuration Update Acknowledge failed: %+v", err)
-		return
-	}
-
-	SendToAmf(amf, pkt)
-}
-
-func SendAMFConfigurationUpdateFailure(
-	amf *context.N3IWFAMF,
-	ngCause ngapType.Cause,
-	time *ngapType.TimeToWait,
-	diagnostics *ngapType.CriticalityDiagnostics,
-) {
-	logger.NgapLog.Infoln("send AMF Configuration Update Failure")
-	pkt, err := BuildAMFConfigurationUpdateFailure(ngCause, time, diagnostics)
-	if err != nil {
-		logger.NgapLog.Errorf("build AMF Configuration Update Failure failed: %+v", err)
 		return
 	}
 
@@ -470,24 +342,4 @@ func SendRANConfigurationUpdate(n3iwfCtx *context.N3IWFContext, amf *context.N3I
 	}
 
 	SendToAmf(amf, pkt)
-}
-
-func SendUplinkRANConfigurationTransfer() {
-	logger.NgapLog.Infoln("send Uplink RAN Configuration Transfer")
-}
-
-func SendUplinkRANStatusTransfer() {
-	logger.NgapLog.Infoln("send Uplink RAN Status Transfer")
-}
-
-func SendLocationReportingFailureIndication() {
-	logger.NgapLog.Infoln("send Location Reporting Failure Indication")
-}
-
-func SendLocationReport() {
-	logger.NgapLog.Infoln("send Location Report")
-}
-
-func SendRRCInactiveTransitionReport() {
-	logger.NgapLog.Infoln("send RRC Inactive Transition Report")
 }

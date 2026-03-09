@@ -43,14 +43,6 @@ func (p *QoSTPDUPacket) GetTEID() uint32 {
 	return p.tPDU.TEID()
 }
 
-// GetExtensionHeader returns the extension headers of the TPDU.
-func (p *QoSTPDUPacket) GetExtensionHeader() []*message.ExtensionHeader {
-	if p.tPDU == nil {
-		return nil
-	}
-	return p.tPDU.ExtensionHeaders
-}
-
 // HasQoS returns true if QoS parameters are present.
 func (p *QoSTPDUPacket) HasQoS() bool {
 	return p.qos
