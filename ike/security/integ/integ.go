@@ -63,22 +63,6 @@ func init() {
 	}
 }
 
-func StrToType(algo string) INTEGType {
-	if t, ok := integTypes[algo]; ok {
-		return t
-	} else {
-		return nil
-	}
-}
-
-func StrToKType(algo string) INTEGKType {
-	if t, ok := integKTypes[algo]; ok {
-		return t
-	} else {
-		return nil
-	}
-}
-
 func DecodeTransform(transform *message.Transform) INTEGType {
 	if f, ok := integString[transform.TransformID]; ok {
 		s := f(transform.AttributeType, transform.AttributeValue, transform.VariableLengthAttributeValue)

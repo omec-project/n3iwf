@@ -210,51 +210,6 @@ func TestValidateConstructedPacket(t *testing.T) {
 	t.Logf("\n%s", analysis)
 }
 
-func ExampleconstructPacketWithESP() {
-	// Setup test parameters
-	srcIP := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 4500}
-	dstIP := &net.UDPAddr{IP: net.ParseIP("10.0.0.50"), Port: 4500}
-	espPayload := []byte{
-		0x00, 0x00, 0x00, 0x01, // SPI
-		0x00, 0x00, 0x00, 0x01, // Sequence Number
-		0x01, 0x02, 0x03, 0x04, // Sample encrypted payload
-	}
-
-	// Construct the packet
-	packet, err := constructPacketWithESP(srcIP, dstIP, espPayload)
-	if err != nil {
-		panic(err)
-	}
-
-	// Validate the packet
-	analysis, err := validateIPv4Packet(packet)
-	if err != nil {
-		panic(err)
-	}
-
-	// Display key information
-	fmt.Printf("Packet constructed: %d bytes\n", len(packet))
-	fmt.Println("Source IP: 192.168.1.100")
-	fmt.Println("Destination IP: 10.0.0.50")
-	fmt.Println("Protocol: ESP (50)")
-	fmt.Println("Checksum: Valid")
-	fmt.Printf("ESP Payload: %d bytes\n", len(espPayload))
-
-	// Verify analysis contains expected elements
-	if analysis != "" {
-		fmt.Println("Validation: Passed")
-	}
-
-	// Output:
-	// Packet constructed: 32 bytes
-	// Source IP: 192.168.1.100
-	// Destination IP: 10.0.0.50
-	// Protocol: ESP (50)
-	// Checksum: Valid
-	// ESP Payload: 12 bytes
-	// Validation: Passed
-}
-
 func BenchmarkConstructPacketWithESP(b *testing.B) {
 	srcIP := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 4500}
 	dstIP := &net.UDPAddr{IP: net.ParseIP("10.0.0.50"), Port: 4500}

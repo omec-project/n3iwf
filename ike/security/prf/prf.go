@@ -35,11 +35,6 @@ func init() {
 	}
 }
 
-// StrToType returns the PRFType for a given algorithm name.
-func StrToType(algo string) PRFType {
-	return prfNameToType[algo]
-}
-
 // DecodeTransform returns the PRFType for a given Transform message.
 func DecodeTransform(transform *message.Transform) PRFType {
 	if toStrFunc, ok := prfIDToStringFunc[transform.TransformID]; ok {

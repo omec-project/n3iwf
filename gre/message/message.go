@@ -110,16 +110,6 @@ func (p *GREPacket) GetQFI() uint8 {
 	return uint8((p.key >> 24) & 0x3F)
 }
 
-// GetRQI returns true if the RQI bit is set in the key field.
-func (p *GREPacket) GetRQI() bool {
-	return (p.key & 0x80) != 0
-}
-
-// GetKeyField returns the key field value.
-func (p *GREPacket) GetKeyField() uint32 {
-	return p.key
-}
-
 // SetQoS sets the QFI and RQI values and marks the Key Present flag.
 func (p *GREPacket) SetQoS(qfi uint8, rqi bool) {
 	p.setQFI(qfi)
