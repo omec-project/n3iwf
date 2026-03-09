@@ -151,9 +151,15 @@ type SendUEContextReleaseCompleteEvt struct {
 	RanUeNgapId int64
 }
 
+func (e *SendUEContextReleaseCompleteEvt) Type() NgapEventType { return SendUEContextReleaseComplete }
+
 // SendPDUSessionResourceReleaseResEvt event
 type SendPDUSessionResourceReleaseResEvt struct {
 	RanUeNgapId int64
+}
+
+func (e *SendPDUSessionResourceReleaseResEvt) Type() NgapEventType {
+	return SendPDUSessionResourceReleaseResponse
 }
 
 // Ngap context constant
@@ -177,6 +183,8 @@ type SendUplinkNASTransportEvt struct {
 	Pdu         []byte
 }
 
+func (e *SendUplinkNASTransportEvt) Type() NgapEventType { return SendUplinkNASTransport }
+
 // SendInitialContextSetupRespEvt event
 type SendInitialContextSetupRespEvt struct {
 	RanUeNgapId            int64
@@ -184,6 +192,8 @@ type SendInitialContextSetupRespEvt struct {
 	FailedList             *ngapType.PDUSessionResourceFailedToSetupListCxtRes
 	CriticalityDiagnostics *ngapType.CriticalityDiagnostics
 }
+
+func (e *SendInitialContextSetupRespEvt) Type() NgapEventType { return SendInitialContextSetupResponse }
 
 // SendUEContextReleaseEvt event
 type SendUEContextReleaseEvt struct {
