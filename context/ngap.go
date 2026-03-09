@@ -153,6 +153,10 @@ type SendUEContextReleaseCompleteEvt struct {
 
 func (e *SendUEContextReleaseCompleteEvt) Type() NgapEventType { return SendUEContextReleaseComplete }
 
+func NewSendUEContextReleaseCompleteEvt(ranUeNgapId int64) *SendUEContextReleaseCompleteEvt {
+	return &SendUEContextReleaseCompleteEvt{RanUeNgapId: ranUeNgapId}
+}
+
 // SendPDUSessionResourceReleaseResEvt event
 type SendPDUSessionResourceReleaseResEvt struct {
 	RanUeNgapId int64
@@ -160,6 +164,10 @@ type SendPDUSessionResourceReleaseResEvt struct {
 
 func (e *SendPDUSessionResourceReleaseResEvt) Type() NgapEventType {
 	return SendPDUSessionResourceReleaseResponse
+}
+
+func NewSendPDUSessionResourceReleaseResEvt(ranUeNgapId int64) *SendPDUSessionResourceReleaseResEvt {
+	return &SendPDUSessionResourceReleaseResEvt{RanUeNgapId: ranUeNgapId}
 }
 
 // Ngap context constant
@@ -185,6 +193,10 @@ type SendUplinkNASTransportEvt struct {
 
 func (e *SendUplinkNASTransportEvt) Type() NgapEventType { return SendUplinkNASTransport }
 
+func NewSendUplinkNASTransportEvt(ranUeNgapId int64, pdu []byte) *SendUplinkNASTransportEvt {
+	return &SendUplinkNASTransportEvt{RanUeNgapId: ranUeNgapId, Pdu: pdu}
+}
+
 // SendInitialContextSetupRespEvt event
 type SendInitialContextSetupRespEvt struct {
 	RanUeNgapId            int64
@@ -194,6 +206,20 @@ type SendInitialContextSetupRespEvt struct {
 }
 
 func (e *SendInitialContextSetupRespEvt) Type() NgapEventType { return SendInitialContextSetupResponse }
+
+func NewSendInitialContextSetupRespEvt(
+	ranUeNgapId int64,
+	responseList *ngapType.PDUSessionResourceSetupListCxtRes,
+	failedList *ngapType.PDUSessionResourceFailedToSetupListCxtRes,
+	criticalityDiagnostics *ngapType.CriticalityDiagnostics,
+) *SendInitialContextSetupRespEvt {
+	return &SendInitialContextSetupRespEvt{
+		RanUeNgapId:            ranUeNgapId,
+		ResponseList:           responseList,
+		FailedList:             failedList,
+		CriticalityDiagnostics: criticalityDiagnostics,
+	}
+}
 
 // SendUEContextReleaseEvt event
 type SendUEContextReleaseEvt struct {

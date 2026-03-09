@@ -3010,7 +3010,7 @@ func HandleSendUEContextReleaseRequest(ngapEvent context.NgapEvt) {
 	message.SendUEContextReleaseRequest(ranUe, *cause)
 }
 
-func HandleSendUEContextReleaseComplete(ngapEvent any) {
+func HandleSendUEContextReleaseComplete(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendUEContextReleaseComplete Event")
 
 	evt := ngapEvent.(*context.SendUEContextReleaseCompleteEvt)
@@ -3029,7 +3029,7 @@ func HandleSendUEContextReleaseComplete(ngapEvent any) {
 	message.SendUEContextReleaseComplete(ranUe, nil)
 }
 
-func HandleSendPDUSessionResourceReleaseRes(ngapEvent any) {
+func HandleSendPDUSessionResourceReleaseRes(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendPDUSessionResourceReleaseResponse Event")
 
 	evt := ngapEvent.(*context.SendPDUSessionResourceReleaseResEvt)
@@ -3045,7 +3045,7 @@ func HandleSendPDUSessionResourceReleaseRes(ngapEvent any) {
 	message.SendPDUSessionResourceReleaseResponse(ranUe, ranUe.GetSharedCtx().PduSessionReleaseList, nil)
 }
 
-func HandleSendUplinkNASTransport(ngapEvent any) {
+func HandleSendUplinkNASTransport(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendUplinkNASTransport Event")
 
 	evt := ngapEvent.(*context.SendUplinkNASTransportEvt)
@@ -3060,7 +3060,7 @@ func HandleSendUplinkNASTransport(ngapEvent any) {
 	message.SendUplinkNASTransport(ranUe, evt.Pdu)
 }
 
-func HandleSendInitialContextSetupResponse(ngapEvent any) {
+func HandleSendInitialContextSetupResponse(ngapEvent context.NgapEvt) {
 	logger.NgapLog.Debugln("handle SendInitialContextSetupResponse Event")
 
 	evt := ngapEvent.(*context.SendInitialContextSetupRespEvt)
