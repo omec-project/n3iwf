@@ -6,8 +6,8 @@
 FROM golang:1.26.2-bookworm@sha256:4f4ab2c90005e7e63cb631f0b4427f05422f241622ee3ec4727cc5febbf83e34 AS builder
 
 WORKDIR $GOPATH/src/n3iwf
-
 COPY . .
+ARG MAKEFLAGS
 RUN make all
 
 FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS n3iwf
@@ -32,12 +32,10 @@ LABEL org.opencontainers.image.source="${VCS_URL}" \
 
 ARG DEBUG_TOOLS
 
-RUN apk update && apk add --no-cache -U bash
-
-# Install debug tools ~ 50MB (if DEBUG_TOOLS is set to true)
-RUN if [ "$DEBUG_TOOLS" = "true" ]; then \
-        apk update && apk add --no-cache -U vim tcpdump strace net-tools curl netcat-openbsd bind-tools; \
-        fi
+RUN apk add --no-cache bash && \
+    if [ "$DEBUG_TOOLS" = "true" ]; then \
+        apk add --no-cache vim nano tcpdump strace net-tools curl netcat-openbsd bind-tools; \
+    fi
 
 # Copy executable
 COPY --from=builder /go/src/n3iwf/bin/* /usr/local/bin/.
