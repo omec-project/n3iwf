@@ -6,7 +6,6 @@
 FROM golang:1.26.2-bookworm@sha256:4f4ab2c90005e7e63cb631f0b4427f05422f241622ee3ec4727cc5febbf83e34 AS builder
 
 WORKDIR $GOPATH/src/n3iwf
-
 COPY . .
 ARG MAKEFLAGS
 RUN make all
