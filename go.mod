@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/ishidawataru/sctp v0.0.0-20251114114122-19ddcbc6aae2
-	github.com/omec-project/ngap v1.9.0
+	github.com/omec-project/ngap v1.9.1
 	github.com/omec-project/util v1.7.2
 	github.com/urfave/cli/v3 v3.8.0
 	github.com/vishvananda/netlink v1.3.1
