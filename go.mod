@@ -9,7 +9,7 @@ require (
 	github.com/urfave/cli/v3 v3.8.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/wmnsk/go-gtp v0.8.12
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	go.yaml.in/yaml/v4 v4.0.0-rc.4
 	golang.org/x/net v0.53.0
 	golang.org/x/sys v0.43.0
