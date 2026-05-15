@@ -19,7 +19,7 @@ import (
 	"github.com/omec-project/n3iwf/ngap/handler"
 	"github.com/omec-project/n3iwf/ngap/message"
 	"github.com/omec-project/n3iwf/util"
-	libNgap "github.com/omec-project/ngap"
+	libNgap "github.com/omec-project/ngap/v2"
 )
 
 const (

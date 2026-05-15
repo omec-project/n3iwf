@@ -17,7 +17,7 @@ import (
 
 	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/logger"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/ngapType"
 	"github.com/omec-project/util/idgenerator"
 	"github.com/wmnsk/go-gtp/gtpv1"
 	"golang.org/x/net/ipv4"

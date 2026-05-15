@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // UeCtxRelState indicates UE Context release state
