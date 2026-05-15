@@ -11,8 +11,8 @@ import (
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
-	"github.com/omec-project/ngap/aper"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/aper"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // PlmnIdToNgap converts a PlmnId to NGAP PLMNIdentity format.

@@ -7,7 +7,7 @@ package context
 
 import (
 	"github.com/ishidawataru/sctp"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // NgapServer manages SCTP connections and event channels

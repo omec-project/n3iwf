@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/omec-project/ngap/ngapConvert"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/ngapConvert"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // N3IWFRanUe represents a UE context in N3IWF

@@ -11,8 +11,8 @@ import (
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/ngap/handler"
 	"github.com/omec-project/n3iwf/util"
-	"github.com/omec-project/ngap"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 func Dispatch(conn *sctp.SCTPConn, msg []byte) {

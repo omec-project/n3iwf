@@ -24,7 +24,7 @@ import (
 	nwucpService "github.com/omec-project/n3iwf/nwucp/service"
 	nwuupService "github.com/omec-project/n3iwf/nwuup/service"
 	"github.com/omec-project/n3iwf/util"
-	ngapLogger "github.com/omec-project/ngap/logger"
+	ngapLogger "github.com/omec-project/ngap/v2/logger"
 	utilLogger "github.com/omec-project/util/logger"
 	"github.com/urfave/cli/v3"
 	"github.com/vishvananda/netlink"

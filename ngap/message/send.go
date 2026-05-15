@@ -10,7 +10,7 @@ import (
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/n3iwf/util"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 func SendToAmf(amf *context.N3IWFAMF, pkt []byte) {

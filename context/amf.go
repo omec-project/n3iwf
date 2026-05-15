@@ -10,9 +10,9 @@ import (
 	"fmt"
 
 	"github.com/ishidawataru/sctp"
-	"github.com/omec-project/ngap/aper"
-	"github.com/omec-project/ngap/ngapConvert"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/aper"
+	"github.com/omec-project/ngap/v2/ngapConvert"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // N3IWFAMF represents an AMF context for N3IWF

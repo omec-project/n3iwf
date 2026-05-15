@@ -10,8 +10,8 @@ import (
 	"errors"
 
 	"github.com/omec-project/n3iwf/logger"
-	"github.com/omec-project/ngap/aper"
-	"github.com/omec-project/ngap/ngapType"
+	"github.com/omec-project/ngap/v2/aper"
+	"github.com/omec-project/ngap/v2/ngapType"
 )
 
 // 3GPP specified EAP-5G
