@@ -50,7 +50,7 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.N
 		return
 	}
 
-	ngSetupResponse := successfulOutcome.Value.NGSetupResponse
+	ngSetupResponse := successfulOutcome.Value.NGSetup
 	if ngSetupResponse == nil {
 		logger.NgapLog.Errorln("ngSetupResponse is nil")
 		return
@@ -155,7 +155,7 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NG
 		return
 	}
 
-	ngSetupFailure := unsuccessfulOutcome.Value.NGSetupFailure
+	ngSetupFailure := unsuccessfulOutcome.Value.NGSetup
 	if ngSetupFailure == nil {
 		logger.NgapLog.Errorln("NGSetupFailure is nil")
 		return
@@ -188,7 +188,7 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NG
 		cause = message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentAbstractSyntaxErrorReject)
 
 		procedureCode := ngapType.ProcedureCodeNGSetup
-		triggeringMessage := ngapType.TriggeringMessagePresentUnsuccessfullOutcome
+		triggeringMessage := ngapType.TriggeringMessagePresentUnsuccessfulOutcome
 		procedureCriticality := ngapType.CriticalityPresentReject
 
 		criticalityDiagnostics := buildCriticalityDiagnostics(
@@ -367,7 +367,7 @@ func HandleNGResetAcknowledge(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 		return
 	}
 
-	nGResetAcknowledge := successfulOutcome.Value.NGResetAcknowledge
+	nGResetAcknowledge := successfulOutcome.Value.NGReset
 	if nGResetAcknowledge == nil {
 		logger.NgapLog.Errorln("nGResetAcknowledge is nil")
 		return
@@ -410,7 +410,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 	var ranUeNgapID *ngapType.RANUENGAPID
 	var oldAMF *ngapType.AMFName
 	var ueAggregateMaximumBitRate *ngapType.UEAggregateMaximumBitRate
-	var coreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformation
+	var coreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformationForInactive
 	var guami *ngapType.GUAMI
 	var pduSessionResourceSetupListCxtReq *ngapType.PDUSessionResourceSetupListCxtReq
 	var allowedNSSAI *ngapType.AllowedNSSAI
@@ -440,7 +440,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 		return
 	}
 
-	initialContextSetupRequest := initiatingMessage.Value.InitialContextSetupRequest
+	initialContextSetupRequest := initiatingMessage.Value.InitialContextSetup
 	if initialContextSetupRequest == nil {
 		logger.NgapLog.Errorln("InitialContextSetupRequest is nil")
 		return
@@ -472,11 +472,11 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 		case ngapType.ProtocolIEIDUEAggregateMaximumBitRate:
 			logger.NgapLog.Debugln("decode IE UEAggregateMaximumBitRate")
 			ueAggregateMaximumBitRate = ie.Value.UEAggregateMaximumBitRate
-		case ngapType.ProtocolIEIDCoreNetworkAssistanceInformation:
-			logger.NgapLog.Debugln("decode IE CoreNetworkAssistanceInformation")
-			coreNetworkAssistanceInformation = ie.Value.CoreNetworkAssistanceInformation
+		case ngapType.ProtocolIEIDCoreNetworkAssistanceInformationForInactive:
+			logger.NgapLog.Debugln("decode IE CoreNetworkAssistanceInformationForInactive")
+			coreNetworkAssistanceInformation = ie.Value.CoreNetworkAssistanceInformationForInactive
 			if coreNetworkAssistanceInformation != nil {
-				logger.NgapLog.Warnln("not Supported IE [CoreNetworkAssistanceInformation]")
+				logger.NgapLog.Warnln("not Supported IE [CoreNetworkAssistanceInformationForInactive]")
 			}
 		case ngapType.ProtocolIEIDGUAMI:
 			logger.NgapLog.Debugln("decode IE GUAMI")
@@ -937,7 +937,7 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 		return
 	}
 
-	ueContextModificationRequest := initiatingMessage.Value.UEContextModificationRequest
+	ueContextModificationRequest := initiatingMessage.Value.UEContextModification
 	if ueContextModificationRequest == nil {
 		logger.NgapLog.Errorln("UEContextModificationRequest is nil")
 		return
@@ -975,9 +975,9 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 		case ngapType.ProtocolIEIDUESecurityCapabilities:
 			logger.NgapLog.Debugln("decode IE UESecurityCapabilities")
 			ueSecurityCapabilities = ie.Value.UESecurityCapabilities
-		case ngapType.ProtocolIEIDCoreNetworkAssistanceInformation:
-			logger.NgapLog.Debugln("decode IE CoreNetworkAssistanceInformation")
-			logger.NgapLog.Warnln("not Supported IE [CoreNetworkAssistanceInformation]")
+		case ngapType.ProtocolIEIDCoreNetworkAssistanceInformationForInactive:
+			logger.NgapLog.Debugln("decode IE CoreNetworkAssistanceInformationForInactive")
+			logger.NgapLog.Warnln("not Supported IE [CoreNetworkAssistanceInformationForInactive]")
 		case ngapType.ProtocolIEIDEmergencyFallbackIndicator:
 			logger.NgapLog.Debugln("decode IE EmergencyFallbackIndicator")
 			logger.NgapLog.Warnln("not Supported IE [EmergencyFallbackIndicator]")
@@ -1067,7 +1067,7 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 		return
 	}
 
-	ueContextReleaseCommand := initiatingMessage.Value.UEContextReleaseCommand
+	ueContextReleaseCommand := initiatingMessage.Value.UEContextRelease
 	if ueContextReleaseCommand == nil {
 		logger.NgapLog.Errorln("UEContextReleaseCommand is nil")
 		return
@@ -1340,7 +1340,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 		return
 	}
 
-	pduSessionResourceSetupRequest := initiatingMessage.Value.PDUSessionResourceSetupRequest
+	pduSessionResourceSetupRequest := initiatingMessage.Value.PDUSessionResourceSetup
 	if pduSessionResourceSetupRequest == nil {
 		logger.NgapLog.Errorln("PDUSessionResourceSetupRequest is nil")
 		return
@@ -1526,7 +1526,7 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 		return
 	}
 
-	pduSessionResourceModifyRequest := initiatingMessage.Value.PDUSessionResourceModifyRequest
+	pduSessionResourceModifyRequest := initiatingMessage.Value.PDUSessionResourceModify
 	if pduSessionResourceModifyRequest == nil {
 		logger.NgapLog.Errorln("PDUSessionResourceModifyRequest is nil")
 		return
@@ -1807,7 +1807,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 		return
 	}
 
-	pDUSessionResourceModifyConfirm := successfulOutcome.Value.PDUSessionResourceModifyConfirm
+	pDUSessionResourceModifyConfirm := successfulOutcome.Value.PDUSessionResourceModifyIndication
 	if pDUSessionResourceModifyConfirm == nil {
 		logger.NgapLog.Errorln("pDUSessionResourceModifyConfirm is nil")
 		return
@@ -1936,7 +1936,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 		return
 	}
 
-	pDUSessionResourceReleaseCommand := initiatingMessage.Value.PDUSessionResourceReleaseCommand
+	pDUSessionResourceReleaseCommand := initiatingMessage.Value.PDUSessionResourceRelease
 	if pDUSessionResourceReleaseCommand == nil {
 		logger.NgapLog.Errorln("pDUSessionResourceReleaseCommand is nil")
 		return
@@ -2161,7 +2161,7 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, pdu *ngapType.NG
 		return
 	}
 
-	uERadioCapabilityCheckRequest := initiatingMessage.Value.UERadioCapabilityCheckRequest
+	uERadioCapabilityCheckRequest := initiatingMessage.Value.UERadioCapabilityCheck
 	if uERadioCapabilityCheckRequest == nil {
 		logger.NgapLog.Errorln("uERadioCapabilityCheckRequest is nil")
 		return
@@ -2356,7 +2356,7 @@ func HandleRANConfigurationUpdateAcknowledge(amf *context.N3IWFAMF, pdu *ngapTyp
 		return
 	}
 
-	rANConfigurationUpdateAcknowledge := successfulOutcome.Value.RANConfigurationUpdateAcknowledge
+	rANConfigurationUpdateAcknowledge := successfulOutcome.Value.RANConfigurationUpdate
 	if rANConfigurationUpdateAcknowledge == nil {
 		logger.NgapLog.Errorln("rANConfigurationUpdateAcknowledge is nil")
 		return
@@ -2400,7 +2400,7 @@ func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, pdu *ngapType.NG
 		return
 	}
 
-	rANConfigurationUpdateFailure := unsuccessfulOutcome.Value.RANConfigurationUpdateFailure
+	rANConfigurationUpdateFailure := unsuccessfulOutcome.Value.RANConfigurationUpdate
 	if rANConfigurationUpdateFailure == nil {
 		logger.NgapLog.Errorln("rANConfigurationUpdateFailure is nil")
 		return

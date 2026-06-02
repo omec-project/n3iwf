@@ -75,8 +75,8 @@ type RanUeSharedCtx struct {
 	IndexToRfsp                      int64
 	Ambr                             *ngapType.UEAggregateMaximumBitRate
 	AllowedNssai                     *ngapType.AllowedNSSAI
-	RadioCapability                  *ngapType.UERadioCapability                // TODO: This is for RRC, can be deleted
-	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformation // TS 38.413 9.3.1.15
+	RadioCapability                  *ngapType.UERadioCapability                           // TODO: This is for RRC, can be deleted
+	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformationForInactive // TS 38.413 9.3.1.15
 	IMSVoiceSupported                int32
 	RRCEstablishmentCause            int16
 	PduSessionReleaseList            ngapType.PDUSessionResourceReleasedListRelRes
