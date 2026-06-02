@@ -1807,13 +1807,13 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 		return
 	}
 
-	pDUSessionResourceModifyConfirm := successfulOutcome.Value.PDUSessionResourceModifyIndication
-	if pDUSessionResourceModifyConfirm == nil {
-		logger.NgapLog.Errorln("pDUSessionResourceModifyConfirm is nil")
+	pDUSessionResourceModifyIndication := successfulOutcome.Value.PDUSessionResourceModifyIndication
+	if pDUSessionResourceModifyIndication == nil {
+		logger.NgapLog.Errorln("pDUSessionResourceModifyIndication is nil")
 		return
 	}
 
-	for _, ie := range pDUSessionResourceModifyConfirm.ProtocolIEs.List {
+	for _, ie := range pDUSessionResourceModifyIndication.ProtocolIEs.List {
 		switch ie.Id.Value {
 		case ngapType.ProtocolIEIDAMFUENGAPID:
 			logger.NgapLog.Debugln("decode IE AMFUENGAPID")
