@@ -28,8 +28,6 @@ import (
 	utilLogger "github.com/omec-project/util/logger"
 	"github.com/urfave/cli/v3"
 	"github.com/vishvananda/netlink"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // N3IWF main struct
@@ -79,31 +77,9 @@ func (n3iwf *N3IWF) setLogLevel() {
 		logger.InitLog.Warnln("N3IWF config without log level setting")
 		return
 	}
-	setModuleLogLevel(cfgLogger.N3IWF, logger.InitLog, logger.SetLogLevel, "N3IWF")
-	setModuleLogLevel(cfgLogger.NGAP, ngapLogger.NgapLog, ngapLogger.SetLogLevel, "NGAP")
-	setModuleLogLevel(cfgLogger.Util, utilLogger.UtilLog, utilLogger.SetLogLevel, "Util (drsm, fsm, etc.)")
-}
-
-// setModuleLogLevel is a helper to reduce repetition in log level setup
-func setModuleLogLevel(moduleCfg *utilLogger.LogSetting, logObj *zap.SugaredLogger, setLevel func(zapcore.Level), moduleName string) {
-	if moduleCfg == nil {
-		logObj.Warnf("%s Log level not set. Default set to [info] level", moduleName)
-		setLevel(zap.InfoLevel)
-		return
-	}
-	if moduleCfg.DebugLevel != "" {
-		level, err := zapcore.ParseLevel(moduleCfg.DebugLevel)
-		if err != nil {
-			logObj.Warnf("%s Log level [%s] is invalid, set to [info] level", moduleName, moduleCfg.DebugLevel)
-			setLevel(zap.InfoLevel)
-		} else {
-			logObj.Infof("%s Log level is set to [%s] level", moduleName, level)
-			setLevel(level)
-		}
-	} else {
-		logObj.Warnf("%s Log level not set. Default set to [info] level", moduleName)
-		setLevel(zap.InfoLevel)
-	}
+	utilLogger.ApplyLogSetting("N3IWF", cfgLogger.N3IWF, logger.InitLog, logger.SetLogLevel)
+	utilLogger.ApplyLogSetting("NGAP", cfgLogger.NGAP, ngapLogger.NgapLog, ngapLogger.SetLogLevel)
+	utilLogger.ApplyLogSetting("Util", cfgLogger.Util, utilLogger.UtilLog, utilLogger.SetLogLevel)
 }
 
 // Start launches all services and handles graceful shutdown
