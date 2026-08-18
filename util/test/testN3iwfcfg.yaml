@@ -3,11 +3,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-
 info:
   version: 1.0.0
   description: N3IWF initial local configuration
-
 configuration:
   n3iwfInformation:
     globalN3iwfId:
@@ -29,33 +27,26 @@ configuration:
               - snssai:
                   sst: 1
                   sd: 112233
-
   amfSctpAddresses:
     - ipList:
-      - "127.0.0.1"
-
+        - "127.0.0.1"
   ikeBindAddress: "127.0.0.1"
   ipSecAddress: 10.0.0.1 # Tunnel IP address of XFRM interface on this N3IWF
   ueIpAddressRange: 10.0.0.0/24
   xfrmInterfaceName: xfrmi
   xfrmInterfaceId: 1
   nasTcpPort: 20000
-
   gtpBindAddress: "127.0.0.1"
   localSctpAddress: "10.100.200.1"
-
   fqdn: n3iwf.aether.org
-
   privateKey: "/opt/n3iwf.key"
   certificateAuthority: "/opt/n3iwf.crt"
   certificate: "/opt/n3iwf.crt"
-
   # sending dead peer detection message
   livenessCheck:
     enable: true # true or false
     transFreq: 60s # frequency of transmission
     maxRetryTimes: 4 # the max number of DPD response of UE
-
 logger:
   N3IWF:
     debugLevel: info
