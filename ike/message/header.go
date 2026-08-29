@@ -13,7 +13,7 @@ import (
 const IKE_HEADER_LEN int = 28
 
 // IKEHeader represents the header of an IKE message as defined in RFC 7296, Section 3.1
-// Fields are ordered as per the wire format for easier marshaling/unmarshaling.
+// Marshaling/unmarshaling uses explicit offsets; struct field order does not need to match the wire format.
 type IKEHeader struct {
 	PayloadBytes []byte
 	InitiatorSPI uint64
