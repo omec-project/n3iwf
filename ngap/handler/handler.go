@@ -63,8 +63,7 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.N
 			amfName = ie.Value.AMFName
 			if amfName == nil {
 				logger.NgapLog.Errorln("AMFName is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDServedGUAMIList:
@@ -72,8 +71,7 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.N
 			servedGUAMIList = ie.Value.ServedGUAMIList
 			if servedGUAMIList == nil {
 				logger.NgapLog.Errorln("ServedGUAMIList is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRelativeAMFCapacity:
@@ -84,8 +82,7 @@ func HandleNGSetupResponse(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.N
 			plmnSupportList = ie.Value.PLMNSupportList
 			if plmnSupportList == nil {
 				logger.NgapLog.Errorln("PLMNSupportList is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDCriticalityDiagnostics:
@@ -168,8 +165,7 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NG
 			cause = ie.Value.Cause
 			if cause == nil {
 				logger.NgapLog.Errorln("cause is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDTimeToWait:
@@ -199,7 +195,7 @@ func HandleNGSetupFailure(sctpAddr string, conn *sctp.SCTPConn, pdu *ngapType.NG
 		return
 	}
 
-	printAndGetCause(cause)
+	printCause(cause)
 
 	if criticalityDiagnostics != nil {
 		printCriticalityDiagnostics(criticalityDiagnostics)
@@ -276,8 +272,7 @@ func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 			resetType = ie.Value.ResetType
 			if resetType == nil {
 				logger.NgapLog.Errorln("ResetType is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		}
@@ -293,7 +288,7 @@ func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 		return
 	}
 
-	printAndGetCause(cause)
+	printCause(cause)
 
 	switch resetType.Present {
 	case ngapType.ResetTypePresentNGInterface:
@@ -453,8 +448,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			amfUeNgapID = ie.Value.AMFUENGAPID
 			if amfUeNgapID == nil {
 				logger.NgapLog.Errorf("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -462,8 +456,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			ranUeNgapID = ie.Value.RANUENGAPID
 			if ranUeNgapID == nil {
 				logger.NgapLog.Errorf("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDOldAMF:
@@ -483,8 +476,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			guami = ie.Value.GUAMI
 			if guami == nil {
 				logger.NgapLog.Errorf("GUAMI is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDPDUSessionResourceSetupListCxtReq:
@@ -495,8 +487,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			allowedNSSAI = ie.Value.AllowedNSSAI
 			if allowedNSSAI == nil {
 				logger.NgapLog.Errorf("AllowedNSSAI is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDUESecurityCapabilities:
@@ -504,8 +495,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			ueSecurityCapabilities = ie.Value.UESecurityCapabilities
 			if ueSecurityCapabilities == nil {
 				logger.NgapLog.Errorf("UESecurityCapabilities is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDSecurityKey:
@@ -513,8 +503,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			securityKey = ie.Value.SecurityKey
 			if securityKey == nil {
 				logger.NgapLog.Errorln("SecurityKey is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDTraceActivation:
@@ -597,8 +586,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			cause := message.BuildCause(ngapType.CausePresentProtocol,
 				ngapType.CauseProtocolPresentAbstractSyntaxErrorFalselyConstructedMessage)
 
-			criticalityDiagnosticsIEItem := buildCriticalityDiagnosticsIEItem(ngapType.CriticalityPresentReject,
-				ngapType.ProtocolIEIDUEAggregateMaximumBitRate, ngapType.TypeOfErrorPresentMissing)
+			criticalityDiagnosticsIEItem := buildCriticalityDiagnosticsIEItem(ngapType.ProtocolIEIDUEAggregateMaximumBitRate)
 			iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, criticalityDiagnosticsIEItem)
 			criticalityDiagnostics := buildCriticalityDiagnostics(nil, nil, nil, &iesCriticalityDiagnostics)
 
@@ -741,15 +729,13 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe context.RanUe, pduSessio
 		case ngapType.ProtocolIEIDULNGUUPTNLInformation:
 			ulNGUUPTNLInformation = ie.Value.ULNGUUPTNLInformation
 			if ulNGUUPTNLInformation == nil {
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDPDUSessionType:
 			pduSessionType = ie.Value.PDUSessionType
 			if pduSessionType == nil {
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDSecurityIndication:
@@ -759,8 +745,7 @@ func handlePDUSessionResourceSetupRequestTransfer(ranUe context.RanUe, pduSessio
 		case ngapType.ProtocolIEIDQosFlowSetupRequestList:
 			qosFlowSetupRequestList = ie.Value.QosFlowSetupRequestList
 			if qosFlowSetupRequestList == nil {
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		}
@@ -950,8 +935,7 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 			amfUeNgapID = ie.Value.AMFUENGAPID
 			if amfUeNgapID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -959,8 +943,7 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 			ranUeNgapID = ie.Value.RANUENGAPID
 			if ranUeNgapID == nil {
 				logger.NgapLog.Errorf("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDSecurityKey:
@@ -1080,8 +1063,7 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 			ueNgapIDs = ie.Value.UENGAPIDs
 			if ueNgapIDs == nil {
 				logger.NgapLog.Errorln("UENGAPIDs is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDCause:
@@ -1115,7 +1097,7 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 		return
 	}
 
-	printAndGetCause(cause)
+	printCause(cause)
 
 	ranUe.GetSharedCtx().UeCtxRelState = context.UeCtxRelStateOngoing
 
@@ -1196,8 +1178,7 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 			amfUeNgapID = ie.Value.AMFUENGAPID
 			if amfUeNgapID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -1205,8 +1186,7 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 			ranUeNgapID = ie.Value.RANUENGAPID
 			if ranUeNgapID == nil {
 				logger.NgapLog.Errorln("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDOldAMF:
@@ -1217,8 +1197,7 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 			nasPDU = ie.Value.NASPDU
 			if nasPDU == nil {
 				logger.NgapLog.Errorln("NASPDU is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDIndexToRFSP:
@@ -1353,8 +1332,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 			amfUeNgapID = ie.Value.AMFUENGAPID
 			if amfUeNgapID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -1362,8 +1340,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 			ranUeNgapID = ie.Value.RANUENGAPID
 			if ranUeNgapID == nil {
 				logger.NgapLog.Errorln("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDNASPDU:
@@ -1374,8 +1351,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 			pduSessionResourceSetupListSUReq = ie.Value.PDUSessionResourceSetupListSUReq
 			if pduSessionResourceSetupListSUReq == nil {
 				logger.NgapLog.Errorln("PDUSessionResourceSetupRequestList is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		}
@@ -1539,8 +1515,7 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 			amfUeNgapID = ie.Value.AMFUENGAPID
 			if amfUeNgapID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -1548,8 +1523,7 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 			ranUeNgapID = ie.Value.RANUENGAPID
 			if ranUeNgapID == nil {
 				logger.NgapLog.Errorln("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDPDUSessionResourceModifyListModReq:
@@ -1557,8 +1531,7 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 			pduSessionResourceModifyListModReq = ie.Value.PDUSessionResourceModifyListModReq
 			if pduSessionResourceModifyListModReq == nil {
 				logger.NgapLog.Errorln("PDUSessionResourceModifyListModReq is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		}
@@ -1658,8 +1631,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 			ulNGUUPTNLModifyList = ie.Value.ULNGUUPTNLModifyList
 			if ulNGUUPTNLModifyList != nil && len(ulNGUUPTNLModifyList.List) == 0 {
 				logger.NgapLog.Errorln("ULNGUUPTNLModifyList should have at least one element")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDNetworkInstance:
@@ -1670,8 +1642,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 			qosFlowAddOrModifyRequestList = ie.Value.QosFlowAddOrModifyRequestList
 			if qosFlowAddOrModifyRequestList != nil && len(qosFlowAddOrModifyRequestList.List) == 0 {
 				logger.NgapLog.Errorln("QosFlowAddOrModifyRequestList should have at least one element")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDQosFlowToReleaseList:
@@ -1679,8 +1650,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 			qosFlowToReleaseList = ie.Value.QosFlowToReleaseList
 			if qosFlowToReleaseList != nil && len(qosFlowToReleaseList.List) == 0 {
 				logger.NgapLog.Errorln("qosFlowToReleaseList should have at least one element")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDAdditionalULNGUUPTNLInformation:
@@ -1758,7 +1728,7 @@ func handlePDUSessionResourceModifyRequestTransfer(
 			_, ok := pduSession.QosFlows[releaseItem.QosFlowIdentifier.Value]
 			if ok {
 				logger.NgapLog.Debugf("delete QosFlow. ID: %d", releaseItem.QosFlowIdentifier.Value)
-				printAndGetCause(&releaseItem.Cause)
+				printCause(&releaseItem.Cause)
 				delete(pduSession.QosFlows, releaseItem.QosFlowIdentifier.Value)
 			}
 		}
@@ -1898,7 +1868,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 				logger.NgapLog.Warnf("[PDUSessionID: %d] PDUSessionResourceModifyIndicationUnsuccessfulTransfer Decode Error: %+v",
 					pduSessionId, err)
 			} else {
-				printAndGetCause(&transfer.Cause)
+				printCause(&transfer.Cause)
 			}
 			logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Modify Indication Unsuccessful", pduSessionId)
 			delete(ranUeCtx.PduSessionList, pduSessionId)
@@ -1949,8 +1919,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 			aMFUENGAPID = ie.Value.AMFUENGAPID
 			if aMFUENGAPID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -1958,8 +1927,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 			rANUENGAPID = ie.Value.RANUENGAPID
 			if rANUENGAPID == nil {
 				logger.NgapLog.Errorln("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANPagingPriority:
@@ -1973,8 +1941,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 			pDUSessionResourceToReleaseListRelCmd = ie.Value.PDUSessionResourceToReleaseListRelCmd
 			if pDUSessionResourceToReleaseListRelCmd == nil {
 				logger.NgapLog.Errorln("PDUSessionResourceToReleaseListRelCmd is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		}
@@ -2022,7 +1989,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 		if err != nil {
 			logger.NgapLog.Warnf("[PDUSessionID: %d] PDUSessionResourceReleaseCommandTransfer Decode Error: %+v", pduSessionId, err)
 		} else {
-			printAndGetCause(&transfer.Cause)
+			printCause(&transfer.Cause)
 		}
 		logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Release Command", pduSessionId)
 		delete(ranUeCtx.PduSessionList, pduSessionId)
@@ -2112,7 +2079,7 @@ func HandleErrorIndication(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 		logger.NgapLog.Warnf("RAN UE NGAP ID is defined, value = %d", rANUENGAPID.Value)
 	}
 
-	printAndGetCause(cause)
+	printCause(cause)
 
 	if criticalityDiagnostics != nil {
 		printCriticalityDiagnostics(criticalityDiagnostics)
@@ -2174,8 +2141,7 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, pdu *ngapType.NG
 			aMFUENGAPID = ie.Value.AMFUENGAPID
 			if aMFUENGAPID == nil {
 				logger.NgapLog.Errorln("AMFUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDRANUENGAPID:
@@ -2183,8 +2149,7 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, pdu *ngapType.NG
 			rANUENGAPID = ie.Value.RANUENGAPID
 			if rANUENGAPID == nil {
 				logger.NgapLog.Errorln("RANUENGAPID is nil")
-				item := buildCriticalityDiagnosticsIEItem(
-					ngapType.CriticalityPresentReject, ie.Id.Value, ngapType.TypeOfErrorPresentMissing)
+				item := buildCriticalityDiagnosticsIEItem(ie.Id.Value)
 				iesCriticalityDiagnostics.List = append(iesCriticalityDiagnostics.List, item)
 			}
 		case ngapType.ProtocolIEIDUERadioCapability:
@@ -2420,7 +2385,7 @@ func HandleRANConfigurationUpdateFailure(amf *context.N3IWFAMF, pdu *ngapType.NG
 		}
 	}
 
-	printAndGetCause(cause)
+	printCause(cause)
 
 	printCriticalityDiagnostics(criticalityDiagnostics)
 
@@ -2563,50 +2528,43 @@ func buildCriticalityDiagnostics(
 	return criticalityDiagnostics
 }
 
-func buildCriticalityDiagnosticsIEItem(ieCriticality aper.Enumerated, ieID int64, typeOfErr aper.Enumerated) (
+func buildCriticalityDiagnosticsIEItem(ieID int64) (
 	item ngapType.CriticalityDiagnosticsIEItem,
 ) {
 	item = ngapType.CriticalityDiagnosticsIEItem{
 		IECriticality: ngapType.Criticality{
-			Value: ieCriticality,
+			Value: ngapType.CriticalityPresentReject,
 		},
 		IEID: ngapType.ProtocolIEID{
 			Value: ieID,
 		},
 		TypeOfError: ngapType.TypeOfError{
-			Value: typeOfErr,
+			Value: ngapType.TypeOfErrorPresentMissing,
 		},
 	}
 
 	return item
 }
 
-func printAndGetCause(cause *ngapType.Cause) (present int, value aper.Enumerated) {
+func printCause(cause *ngapType.Cause) {
 	if cause == nil {
 		logger.NgapLog.Errorln("cause is nil")
 		return
 	}
-	present = cause.Present
-	switch present {
+	switch cause.Present {
 	case ngapType.CausePresentRadioNetwork:
 		logger.NgapLog.Warnf("cause RadioNetwork[%d]", cause.RadioNetwork.Value)
-		value = cause.RadioNetwork.Value
 	case ngapType.CausePresentTransport:
 		logger.NgapLog.Warnf("cause Transport[%d]", cause.Transport.Value)
-		value = cause.Transport.Value
 	case ngapType.CausePresentProtocol:
 		logger.NgapLog.Warnf("cause Protocol[%d]", cause.Protocol.Value)
-		value = cause.Protocol.Value
 	case ngapType.CausePresentNas:
 		logger.NgapLog.Warnf("cause Nas[%d]", cause.Nas.Value)
-		value = cause.Nas.Value
 	case ngapType.CausePresentMisc:
 		logger.NgapLog.Warnf("cause Misc[%d]", cause.Misc.Value)
-		value = cause.Misc.Value
 	default:
-		logger.NgapLog.Errorf("invalid Cause group[%d]", present)
+		logger.NgapLog.Errorf("invalid Cause group[%d]", cause.Present)
 	}
-	return
 }
 
 func printCriticalityDiagnostics(criticalityDiagnostics *ngapType.CriticalityDiagnostics) {

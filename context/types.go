@@ -47,8 +47,8 @@ type SliceSupportItem struct {
 
 // SnssaiItem represents a Single Network Slice Selection Assistance Information item
 type SnssaiItem struct {
-	Sst int32  `yaml:"sst"`
 	Sd  string `yaml:"sd,omitempty"`
+	Sst int32  `yaml:"sst"`
 }
 
 // AmfSctpAddresses holds SCTP address information for AMF

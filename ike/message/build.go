@@ -13,14 +13,6 @@ import (
 	"net"
 )
 
-// Utility: assign slice directly if empty, else append
-func assignOrAppend(dst, src []byte) []byte {
-	if len(dst) == 0 {
-		return src
-	}
-	return append(dst, src...)
-}
-
 func (container *IKEPayloadContainer) Reset() {
 	*container = nil
 }
@@ -35,8 +27,8 @@ func (container *IKEPayloadContainer) BuildNotification(
 	notification := new(Notification)
 	notification.ProtocolID = protocolID
 	notification.NotifyMessageType = notifyMessageType
-	notification.SPI = assignOrAppend(nil, spi)
-	notification.NotificationData = assignOrAppend(nil, notificationData)
+	notification.SPI = spi
+	notification.NotificationData = notificationData
 	*container = append(*container, notification)
 }
 
@@ -44,7 +36,7 @@ func (container *IKEPayloadContainer) BuildNotification(
 func (container *IKEPayloadContainer) BuildCertificate(certificateEncode uint8, certificateData []byte) {
 	certificate := new(Certificate)
 	certificate.CertificateEncoding = certificateEncode
-	certificate.CertificateData = assignOrAppend(nil, certificateData)
+	certificate.CertificateData = certificateData
 	*container = append(*container, certificate)
 }
 
@@ -52,7 +44,7 @@ func (container *IKEPayloadContainer) BuildCertificate(certificateEncode uint8, 
 func (container *IKEPayloadContainer) BuildEncrypted(nextPayload IKEPayloadType, encryptedData []byte) *Encrypted {
 	encrypted := new(Encrypted)
 	encrypted.NextPayload = nextPayload
-	encrypted.EncryptedData = assignOrAppend(nil, encryptedData)
+	encrypted.EncryptedData = encryptedData
 	*container = append(*container, encrypted)
 	return encrypted
 }
@@ -61,7 +53,7 @@ func (container *IKEPayloadContainer) BuildEncrypted(nextPayload IKEPayloadType,
 func (container *IKEPayloadContainer) BuildKeyExchange(diffiehellmanGroup uint16, keyExchangeData []byte) {
 	keyExchange := new(KeyExchange)
 	keyExchange.DiffieHellmanGroup = diffiehellmanGroup
-	keyExchange.KeyExchangeData = assignOrAppend(nil, keyExchangeData)
+	keyExchange.KeyExchangeData = keyExchangeData
 	*container = append(*container, keyExchange)
 }
 
@@ -69,14 +61,14 @@ func (container *IKEPayloadContainer) BuildKeyExchange(diffiehellmanGroup uint16
 func (container *IKEPayloadContainer) BuildIdentificationInitiator(idType uint8, idData []byte) {
 	identification := new(IdentificationInitiator)
 	identification.IDType = idType
-	identification.IDData = assignOrAppend(nil, idData)
+	identification.IDData = idData
 	*container = append(*container, identification)
 }
 
 func (container *IKEPayloadContainer) BuildIdentificationResponder(idType uint8, idData []byte) {
 	identification := new(IdentificationResponder)
 	identification.IDType = idType
-	identification.IDData = assignOrAppend(nil, idData)
+	identification.IDData = idData
 	*container = append(*container, identification)
 }
 
@@ -84,7 +76,7 @@ func (container *IKEPayloadContainer) BuildIdentificationResponder(idType uint8,
 func (container *IKEPayloadContainer) BuildAuthentication(authenticationMethod uint8, authenticationData []byte) {
 	authentication := new(Authentication)
 	authentication.AuthenticationMethod = authenticationMethod
-	authentication.AuthenticationData = assignOrAppend(nil, authenticationData)
+	authentication.AuthenticationData = authenticationData
 	*container = append(*container, authentication)
 }
 
@@ -106,14 +98,14 @@ func (container *ConfigurationAttributeContainer) BuildConfigurationAttribute(
 ) {
 	configurationAttribute := new(IndividualConfigurationAttribute)
 	configurationAttribute.Type = attributeType
-	configurationAttribute.Value = assignOrAppend(nil, attributeValue)
+	configurationAttribute.Value = attributeValue
 	*container = append(*container, configurationAttribute)
 }
 
 // Nonce
 func (container *IKEPayloadContainer) BuildNonce(nonceData []byte) {
 	nonce := new(Nonce)
-	nonce.NonceData = assignOrAppend(nil, nonceData)
+	nonce.NonceData = nonceData
 	*container = append(*container, nonce)
 }
 
@@ -147,8 +139,8 @@ func (container *IndividualTrafficSelectorContainer) BuildIndividualTrafficSelec
 	ts.IPProtocolID = ipProtocolID
 	ts.StartPort = startPort
 	ts.EndPort = endPort
-	ts.StartAddress = assignOrAppend(nil, startAddr)
-	ts.EndAddress = assignOrAppend(nil, endAddr)
+	ts.StartAddress = startAddr
+	ts.EndAddress = endAddr
 	*container = append(*container, ts)
 }
 
@@ -167,7 +159,7 @@ func (container *ProposalContainer) BuildProposal(proposalNumber uint8, protocol
 	proposal := new(Proposal)
 	proposal.ProposalNumber = proposalNumber
 	proposal.ProtocolID = protocolID
-	proposal.SPI = assignOrAppend(nil, spi)
+	proposal.SPI = spi
 	*container = append(*container, proposal)
 	return proposal
 }
@@ -204,7 +196,7 @@ func (container *TransformContainer) BuildTransform(
 			transform.AttributeValue = *attributeValue
 		} else if len(variableLengthAttributeValue) != 0 {
 			transform.AttributeFormat = AttributeFormatUseTLV
-			transform.VariableLengthAttributeValue = assignOrAppend(nil, variableLengthAttributeValue)
+			transform.VariableLengthAttributeValue = variableLengthAttributeValue
 		} else {
 			return
 		}
@@ -241,7 +233,7 @@ func (container *EAPTypeDataContainer) BuildEAPExpanded(vendorID uint32, vendorT
 	eapExpanded := new(EAPExpanded)
 	eapExpanded.VendorID = vendorID
 	eapExpanded.VendorType = vendorType
-	eapExpanded.VendorData = assignOrAppend(nil, vendorData)
+	eapExpanded.VendorData = vendorData
 	*container = append(*container, eapExpanded)
 }
 

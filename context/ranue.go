@@ -48,38 +48,27 @@ type RanUe interface {
 // RanUeSharedCtx holds shared context for a UE
 
 type RanUeSharedCtx struct {
-	// UE identity
-	RanUeNgapId  int64
-	AmfUeNgapId  int64
-	IPAddrv4     string
-	IPAddrv6     string
-	PortNumber   int32
-	MaskedIMEISV *ngapType.MaskedIMEISV // TS 38.413 9.3.1.54
-	Guti         string
-
-	// Relative Context
-	N3iwfCtx *N3IWFContext
-	AMF      *N3IWFAMF
-
-	// Security
-	SecurityCapabilities *ngapType.UESecurityCapabilities // TS 38.413 9.3.1.86
-
-	// PDU Session
-	PduSessionList map[int64]*PDUSession // pduSessionId as key
-
-	// PDU Session Setup Temporary Data
-	TemporaryPDUSessionSetupData *PDUSessionSetupTemporaryData
-
-	// Others
-	Guami                            *ngapType.GUAMI
-	IndexToRfsp                      int64
-	Ambr                             *ngapType.UEAggregateMaximumBitRate
+	PduSessionList                   map[int64]*PDUSession
+	RadioCapability                  *ngapType.UERadioCapability
+	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformationForInactive
 	AllowedNssai                     *ngapType.AllowedNSSAI
-	RadioCapability                  *ngapType.UERadioCapability                           // TODO: This is for RRC, can be deleted
-	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformationForInactive // TS 38.413 9.3.1.15
+	Ambr                             *ngapType.UEAggregateMaximumBitRate
+	MaskedIMEISV                     *ngapType.MaskedIMEISV
+	N3iwfCtx                         *N3IWFContext
+	Guami                            *ngapType.GUAMI
+	TemporaryPDUSessionSetupData     *PDUSessionSetupTemporaryData
+	SecurityCapabilities             *ngapType.UESecurityCapabilities
+	AMF                              *N3IWFAMF
+	Guti                             string
+	IPAddrv6                         string
+	IPAddrv4                         string
+	PduSessionReleaseList            ngapType.PDUSessionResourceReleasedListRelRes
+	AmfUeNgapId                      int64
+	IndexToRfsp                      int64
+	RanUeNgapId                      int64
+	PortNumber                       int32
 	IMSVoiceSupported                int32
 	RRCEstablishmentCause            int16
-	PduSessionReleaseList            ngapType.PDUSessionResourceReleasedListRelRes
 	UeCtxRelState                    UeCtxRelState
 	PduSessResRelState               PduSessResRelState
 }
@@ -87,18 +76,18 @@ type RanUeSharedCtx struct {
 // PDUSession holds PDU session information
 
 type PDUSession struct {
-	Id                               int64 // PDU Session ID
+	Snssai                           ngapType.SNSSAI
 	Type                             *ngapType.PDUSessionType
 	Ambr                             *ngapType.PDUSessionAggregateMaximumBitRate
-	Snssai                           ngapType.SNSSAI
 	NetworkInstance                  *ngapType.NetworkInstance
-	SecurityCipher                   bool
-	SecurityIntegrity                bool
 	MaximumIntegrityDataRateUplink   *ngapType.MaximumIntegrityProtectedDataRate
 	MaximumIntegrityDataRateDownlink *ngapType.MaximumIntegrityProtectedDataRate
 	GTPConnection                    *GTPConnectionInfo
+	QosFlows                         map[int64]*QosFlow
 	QFIList                          []uint8
-	QosFlows                         map[int64]*QosFlow // QosFlowIdentifier as key
+	Id                               int64
+	SecurityCipher                   bool
+	SecurityIntegrity                bool
 }
 
 // NewPDUSession returns a new PDUSession with initialized maps
@@ -113,15 +102,15 @@ func NewPDUSession(id int64, snssai ngapType.SNSSAI) *PDUSession {
 // QosFlow holds QoS flow information
 
 type QosFlow struct {
-	Identifier int64
 	Parameters ngapType.QosFlowLevelQosParameters
+	Identifier int64
 }
 
 // GTPConnectionInfo holds GTP connection details
 
 type GTPConnectionInfo struct {
-	UPFIPAddr    string
 	UPFUDPAddr   net.Addr
+	UPFIPAddr    string
 	IncomingTEID uint32
 	OutgoingTEID uint32
 }
@@ -129,14 +118,14 @@ type GTPConnectionInfo struct {
 // PDUSessionSetupTemporaryData holds temporary data for PDU session setup
 
 type PDUSessionSetupTemporaryData struct {
-	UnactivatedPDUSession []*PDUSession // Slice of unactivated PDU session
-	NGAPProcedureCode     ngapType.ProcedureCode
 	SetupListCxtRes       *ngapType.PDUSessionResourceSetupListCxtRes
 	FailedListCxtRes      *ngapType.PDUSessionResourceFailedToSetupListCxtRes
 	SetupListSURes        *ngapType.PDUSessionResourceSetupListSURes
 	FailedListSURes       *ngapType.PDUSessionResourceFailedToSetupListSURes
-	FailedErrStr          []EvtError // List of Error for failed setup PDUSessionID
-	Index                 int        // Current Index of UnactivatedPDUSession
+	UnactivatedPDUSession []*PDUSession
+	FailedErrStr          []EvtError
+	NGAPProcedureCode     ngapType.ProcedureCode
+	Index                 int
 }
 
 // GetSharedCtx returns the shared context

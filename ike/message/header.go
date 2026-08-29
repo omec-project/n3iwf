@@ -15,15 +15,15 @@ const IKE_HEADER_LEN int = 28
 // IKEHeader represents the header of an IKE message as defined in RFC 7296, Section 3.1
 // Fields are ordered as per the wire format for easier marshaling/unmarshaling.
 type IKEHeader struct {
+	PayloadBytes []byte
 	InitiatorSPI uint64
 	ResponderSPI uint64
+	MessageID    uint32
 	MajorVersion uint8
 	MinorVersion uint8
 	ExchangeType uint8
 	Flags        uint8
-	MessageID    uint32
 	NextPayload  IKEPayloadType
-	PayloadBytes []byte
 }
 
 // NewHeader creates a new IKEHeader with the provided parameters and sets version to 2.0.

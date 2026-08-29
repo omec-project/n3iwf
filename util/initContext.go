@@ -174,7 +174,8 @@ func InitN3IWFContext() bool {
 		return false
 	}
 	sha1Hash := sha1.New()
-	if _, err := sha1Hash.Write(cert.RawSubjectPublicKeyInfo); err != nil {
+	_, err = sha1Hash.Write(cert.RawSubjectPublicKeyInfo)
+	if err != nil {
 		logger.CtxLog.Errorf("hash function writing failed: %+v", err)
 		return false
 	}

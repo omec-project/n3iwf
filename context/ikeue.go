@@ -20,29 +20,15 @@ const AmfUeNgapIdUnspecified int64 = 0xffffffffff
 // N3IWFIkeUe represents a UE context in N3IWF
 // Contains IKE and Child SA, identity, and connection info
 type N3IWFIkeUe struct {
-	N3iwfCtx *N3IWFContext
-
-	// UE identity
-	IPSecInnerIP     net.IP
-	IPSecInnerIPAddr *net.IPAddr // Used to send UP packets to UE
-
-	// IKE Security Association
-	N3IWFIKESecurityAssociation   *IKESecurityAssociation
-	N3IWFChildSecurityAssociation map[uint32]*ChildSecurityAssociation // inbound SPI as key
-
-	// Temporary Mapping of two SPIs
-	// Exchange Message ID(including a SPI) and ChildSA(including a SPI)
-	// Mapping of Message ID of exchange in IKE and Child SA when creating new child SA
-	TemporaryExchangeMsgIDChildSAMapping map[uint32]*ChildSecurityAssociation // Message ID as a key
-
-	// Security
-	Kn3iwf []uint8 // 32 bytes (256 bits), value is from NGAP IE "Security Key"
-
-	// NAS IKE Connection
-	IKEConnection *UDPSocketInfo
-
-	// Length of PDU Session List
-	PduSessionListLen int
+	N3iwfCtx                             *N3IWFContext
+	IPSecInnerIPAddr                     *net.IPAddr
+	N3IWFIKESecurityAssociation          *IKESecurityAssociation
+	N3IWFChildSecurityAssociation        map[uint32]*ChildSecurityAssociation
+	TemporaryExchangeMsgIDChildSAMapping map[uint32]*ChildSecurityAssociation
+	IKEConnection                        *UDPSocketInfo
+	IPSecInnerIP                         net.IP
+	Kn3iwf                               []uint8
+	PduSessionListLen                    int
 }
 
 type IkeMsgTemporaryData struct {
@@ -52,50 +38,30 @@ type IkeMsgTemporaryData struct {
 }
 
 type IKESecurityAssociation struct {
+	IKESAClosedCh        chan struct{}
+	IKEConnection        *UDPSocketInfo
+	IkeUE                *N3IWFIkeUe
+	IKEAuthResponseSA    *message.SecurityAssociation
+	DPDReqRetransTimer   *Timer
+	InitiatorCertificate *message.Certificate
 	*security.IKESAKey
-	// SPI
-	RemoteSPI uint64
-	LocalSPI  uint64
-
-	// Message ID
-	InitiatorMessageID uint32
-	ResponderMessageID uint32
-
-	// Used for key generating
-	ConcatenatedNonce []byte
-
-	// State for IKE_AUTH
-	State uint8
-
-	// Temporary data stored for the use in later exchange
 	InitiatorID              *message.IdentificationInitiator
-	InitiatorCertificate     *message.Certificate
-	IKEAuthResponseSA        *message.SecurityAssociation
+	TemporaryIkeMsg          *IkeMsgTemporaryData
 	TrafficSelectorInitiator *message.TrafficSelectorInitiator
 	TrafficSelectorResponder *message.TrafficSelectorResponder
+	ConcatenatedNonce        []byte
+	ResponderSignedOctets    []byte
+	InitiatorSignedOctets    []byte
+	RemoteSPI                uint64
+	LocalSPI                 uint64
+	InitiatorMessageID       uint32
+	CurrentRetryTimes        int32
+	ResponderMessageID       uint32
+	State                    uint8
+	N3iwfBehindNAT           bool
+	UeBehindNAT              bool
 	LastEAPIdentifier        uint8
-
-	// UDP Connection
-	IKEConnection *UDPSocketInfo
-
-	// Authentication data
-	ResponderSignedOctets []byte
-	InitiatorSignedOctets []byte
-
-	// NAT detection
-	UeBehindNAT    bool // If true, N3IWF should enable NAT traversal and
-	N3iwfBehindNAT bool // TODO: If true, N3IWF should send UDP keepalive periodically
-
-	// IKE UE context
-	IkeUE *N3IWFIkeUe
-
-	// Temporary store the receive ike message
-	TemporaryIkeMsg *IkeMsgTemporaryData
-
-	DPDReqRetransTimer *Timer // The time from sending the DPD request to receiving the response
-	CurrentRetryTimes  int32  // Accumulate the number of times the DPD response wasn't received
-	IKESAClosedCh      chan struct{}
-	IsUseDPD           bool
+	IsUseDPD                 bool
 }
 
 func (ikeSA *IKESecurityAssociation) String() string {
@@ -111,40 +77,23 @@ const (
 )
 
 type ChildSecurityAssociation struct {
-	// SPI
-	InboundSPI  uint32 // N3IWF Specify
-	OutboundSPI uint32 // Non-3GPP UE Specify
-
-	// Associated XFRM interface
 	XfrmIface netlink.Link
-
-	XfrmStateList  []netlink.XfrmState
-	XfrmPolicyList []netlink.XfrmPolicy
-
-	// IP address
-	PeerPublicIPAddr  net.IP
-	LocalPublicIPAddr net.IP
-
-	// Traffic selector
-	SelectedIPProtocol    uint8
+	IkeUE     *N3IWFIkeUe
+	*security.ChildSAKey
 	TrafficSelectorLocal  net.IPNet
 	TrafficSelectorRemote net.IPNet
-
-	// Security
-	*security.ChildSAKey
-
-	// Encapsulate
-	EnableEncapsulate bool
-	N3IWFPort         int
-	NATPort           int
-
-	// PDU Session IDs associated with this child SA
-	PDUSessionIds []int64
-
-	// IKE UE context
-	IkeUE *N3IWFIkeUe
-
-	LocalIsInitiator bool
+	XfrmPolicyList        []netlink.XfrmPolicy
+	LocalPublicIPAddr     net.IP
+	PeerPublicIPAddr      net.IP
+	XfrmStateList         []netlink.XfrmState
+	PDUSessionIds         []int64
+	N3IWFPort             int
+	NATPort               int
+	InboundSPI            uint32
+	OutboundSPI           uint32
+	SelectedIPProtocol    uint8
+	EnableEncapsulate     bool
+	LocalIsInitiator      bool
 }
 
 func (childSA *ChildSecurityAssociation) String(xfrmiId uint32) string {

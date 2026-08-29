@@ -279,16 +279,14 @@ func (ikesaKey *IKESAKey) GenerateKeyForIKESA(
 // SPI
 // Child SA transform types
 type ChildSAKey struct {
-	DhInfo     dh.DHType
-	EncrKInfo  encr.ENCRType
-	IntegKInfo integ.INTEGKType
-	EsnInfo    esn.ESN
-
-	// Security
+	DhInfo                            dh.DHType
+	EncrKInfo                         encr.ENCRType
+	IntegKInfo                        integ.INTEGKType
 	InitiatorToResponderEncryptionKey []byte
 	ResponderToInitiatorEncryptionKey []byte
 	InitiatorToResponderIntegrityKey  []byte
 	ResponderToInitiatorIntegrityKey  []byte
+	EsnInfo                           esn.ESN
 }
 
 func (childsaKey *ChildSAKey) ToProposal() (*message.Proposal, error) {

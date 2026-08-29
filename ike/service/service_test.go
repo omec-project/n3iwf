@@ -239,8 +239,8 @@ func validateIPv4Packet(packet []byte) (string, error) {
 	ihl := versionIHL & 0x0F
 	headerLen := int(ihl) * 4
 
-	result.WriteString(fmt.Sprintf("Version: %d\n", version))
-	result.WriteString(fmt.Sprintf("IHL: %d (%d bytes)\n", ihl, headerLen))
+	fmt.Fprintf(&result, "Version: %d\n", version)
+	fmt.Fprintf(&result, "IHL: %d (%d bytes)\n", ihl, headerLen)
 
 	if version != 4 {
 		return result.String(), fmt.Errorf("invalid IP version: %d (expected 4)", version)
@@ -252,39 +252,39 @@ func validateIPv4Packet(packet []byte) (string, error) {
 
 	// Type of Service
 	tos := packet[1]
-	result.WriteString(fmt.Sprintf("Type of Service: 0x%02x\n", tos))
+	fmt.Fprintf(&result, "Type of Service: 0x%02x\n", tos)
 
 	// Total Length
 	totalLen := binary.BigEndian.Uint16(packet[2:4])
-	result.WriteString(fmt.Sprintf("Total Length: %d bytes\n", totalLen))
+	fmt.Fprintf(&result, "Total Length: %d bytes\n", totalLen)
 
 	if int(totalLen) != len(packet) {
-		result.WriteString(fmt.Sprintf("  WARNING: Total length (%d) != actual packet length (%d)\n", totalLen, len(packet)))
+		fmt.Fprintf(&result, "  WARNING: Total length (%d) != actual packet length (%d)\n", totalLen, len(packet))
 	}
 
 	// Identification
 	id := binary.BigEndian.Uint16(packet[4:6])
-	result.WriteString(fmt.Sprintf("Identification: 0x%04x\n", id))
+	fmt.Fprintf(&result, "Identification: 0x%04x\n", id)
 
 	// Flags and Fragment Offset
 	flagsOffset := binary.BigEndian.Uint16(packet[6:8])
 	flags := flagsOffset >> 13
 	fragmentOffset := flagsOffset & 0x1FFF
-	result.WriteString(fmt.Sprintf("Flags: 0x%x\n", flags))
-	result.WriteString(fmt.Sprintf("Fragment Offset: %d\n", fragmentOffset))
+	fmt.Fprintf(&result, "Flags: 0x%x\n", flags)
+	fmt.Fprintf(&result, "Fragment Offset: %d\n", fragmentOffset)
 
 	// TTL
 	ttl := packet[8]
-	result.WriteString(fmt.Sprintf("TTL: %d\n", ttl))
+	fmt.Fprintf(&result, "TTL: %d\n", ttl)
 
 	// Protocol
 	protocol := packet[9]
 	protocolName := getProtocolName(protocol)
-	result.WriteString(fmt.Sprintf("Protocol: %d (%s)\n", protocol, protocolName))
+	fmt.Fprintf(&result, "Protocol: %d (%s)\n", protocol, protocolName)
 
 	// Checksum
 	checksum := binary.BigEndian.Uint16(packet[10:12])
-	result.WriteString(fmt.Sprintf("Header Checksum: 0x%04x\n", checksum))
+	fmt.Fprintf(&result, "Header Checksum: 0x%04x\n", checksum)
 
 	// Verify checksum
 	headerCopy := make([]byte, headerLen)
@@ -296,18 +296,18 @@ func validateIPv4Packet(packet []byte) (string, error) {
 	if calculatedChecksum == checksum {
 		result.WriteString("  ✓ Checksum is VALID\n")
 	} else {
-		result.WriteString(fmt.Sprintf("  ✗ Checksum is INVALID (expected 0x%04x, got 0x%04x)\n", calculatedChecksum, checksum))
+		fmt.Fprintf(&result, "  ✗ Checksum is INVALID (expected 0x%04x, got 0x%04x)\n", calculatedChecksum, checksum)
 	}
 
 	// Source and Destination IP
 	srcIP := net.IP(packet[12:16])
 	dstIP := net.IP(packet[16:20])
-	result.WriteString(fmt.Sprintf("Source IP: %s\n", srcIP))
-	result.WriteString(fmt.Sprintf("Destination IP: %s\n", dstIP))
+	fmt.Fprintf(&result, "Source IP: %s\n", srcIP)
+	fmt.Fprintf(&result, "Destination IP: %s\n", dstIP)
 
 	// Payload
 	payloadLen := len(packet) - headerLen
-	result.WriteString(fmt.Sprintf("\nPayload Length: %d bytes\n", payloadLen))
+	fmt.Fprintf(&result, "\nPayload Length: %d bytes\n", payloadLen)
 
 	if payloadLen > 0 {
 		result.WriteString("Payload (first 64 bytes):\n")
@@ -341,12 +341,12 @@ func getProtocolName(protocol byte) string {
 func hexDump(data []byte, offset int) string {
 	var result strings.Builder
 	for i := 0; i < len(data); i += 16 {
-		result.WriteString(fmt.Sprintf("  %04x: ", offset+i))
+		fmt.Fprintf(&result, "  %04x: ", offset+i)
 
 		// Hex values
 		for j := 0; j < 16; j++ {
 			if i+j < len(data) {
-				result.WriteString(fmt.Sprintf("%02x ", data[i+j]))
+				fmt.Fprintf(&result, "%02x ", data[i+j])
 			} else {
 				result.WriteString("   ")
 			}

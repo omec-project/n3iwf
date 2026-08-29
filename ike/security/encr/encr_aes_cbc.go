@@ -22,7 +22,7 @@ const (
 	ENCR_AES_CBC_256 string = "ENCR_AES_CBC_256"
 )
 
-func toString_ENCR_AES_CBC(attrType uint16, intValue uint16, bytesValue []byte) string {
+func toString_ENCR_AES_CBC(attrType uint16, intValue uint16, _ []byte) string {
 	if attrType != message.AttributeTypeKeyLength {
 		return ""
 	}

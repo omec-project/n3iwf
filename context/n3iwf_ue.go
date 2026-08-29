@@ -16,17 +16,11 @@ import (
 // N3IWFRanUe represents a UE context in N3IWF
 // Improved grouping and comments for clarity
 type N3IWFRanUe struct {
+	TCPConnection             net.Conn
+	TemporaryCachedNASMessage []byte
 	RanUeSharedCtx
-
-	// NAS TCP Connection
-	TCPConnection                   net.Conn
 	IsNASTCPConnEstablished         bool
 	IsNASTCPConnEstablishedComplete bool
-
-	// Temporary cached NAS message used when NAS registration accept arrived
-	// before UE setup NAS TCP connection with N3IWF, and forward
-	// pduSessionEstablishmentAccept to UE after UE send CREATE_CHILD_SA response
-	TemporaryCachedNASMessage []byte
 }
 
 // Initialize N3IWFRanUe context

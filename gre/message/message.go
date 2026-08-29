@@ -25,11 +25,11 @@ const (
 // GREPacket represents a GRE encapsulated user data packet as per TS 24.502 9.3.3
 // Fields are private to enforce encapsulation; use methods to access or modify.
 type GREPacket struct {
+	payload      []byte
+	key          uint32
+	protocolType uint16
 	flags        uint8
 	version      uint8
-	protocolType uint16
-	key          uint32
-	payload      []byte
 }
 
 // Marshal serializes the GREPacket into a byte slice.

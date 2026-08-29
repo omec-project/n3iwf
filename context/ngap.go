@@ -12,9 +12,9 @@ import (
 
 // NgapServer manages SCTP connections and event channels
 type NgapServer struct {
-	Conn         []*sctp.SCTPConn
 	RcvNgapPktCh chan NgapReceivePacket
 	RcvEventCh   chan NgapEvt
+	Conn         []*sctp.SCTPConn
 }
 
 // NgapReceivePacket represents a received NGAP packet
@@ -62,10 +62,10 @@ type NgapEvt interface {
 
 // UnmarshalEAP5GDataEvt event
 type UnmarshalEAP5GDataEvt struct {
-	LocalSPI      uint64
 	EAPVendorData []byte
-	IsInitialUE   bool
+	LocalSPI      uint64
 	RanUeNgapId   int64
+	IsInitialUE   bool
 }
 
 func (e *UnmarshalEAP5GDataEvt) Type() NgapEventType { return UnmarshalEAP5GData }
@@ -76,10 +76,10 @@ func NewUnmarshalEAP5GDataEvt(localSPI uint64, eapVendorData []byte, isInitialUE
 
 // SendInitialUEMessageEvt event
 type SendInitialUEMessageEvt struct {
-	RanUeNgapId int64
 	IPv4Addr    string
-	IPv4Port    int
 	NasPDU      []byte
+	RanUeNgapId int64
+	IPv4Port    int
 }
 
 func (e *SendInitialUEMessageEvt) Type() NgapEventType { return SendInitialUEMessage }
@@ -136,8 +136,8 @@ func NewNASTCPConnEstablishedCompleteEvt(ranUeNgapId int64) *NASTCPConnEstablish
 
 // SendUEContextReleaseRequestEvt event
 type SendUEContextReleaseRequestEvt struct {
-	RanUeNgapId int64
 	ErrMsg      EvtError
+	RanUeNgapId int64
 }
 
 func (e *SendUEContextReleaseRequestEvt) Type() NgapEventType { return SendUEContextReleaseRequest }
@@ -175,8 +175,8 @@ const CxtTempPDUSessionSetupData int64 = iota
 
 // GetNGAPContextEvt event
 type GetNGAPContextEvt struct {
-	RanUeNgapId       int64
 	NgapCxtReqNumlist []int64
+	RanUeNgapId       int64
 }
 
 func (e *GetNGAPContextEvt) Type() NgapEventType { return GetNGAPContext }
@@ -187,8 +187,8 @@ func NewGetNGAPContextEvt(ranUeNgapId int64, ngapCxtReqNumlist []int64) *GetNGAP
 
 // SendUplinkNASTransportEvt event
 type SendUplinkNASTransportEvt struct {
-	RanUeNgapId int64
 	Pdu         []byte
+	RanUeNgapId int64
 }
 
 func (e *SendUplinkNASTransportEvt) Type() NgapEventType { return SendUplinkNASTransport }
@@ -199,10 +199,10 @@ func NewSendUplinkNASTransportEvt(ranUeNgapId int64, pdu []byte) *SendUplinkNAST
 
 // SendInitialContextSetupRespEvt event
 type SendInitialContextSetupRespEvt struct {
-	RanUeNgapId            int64
 	ResponseList           *ngapType.PDUSessionResourceSetupListCxtRes
 	FailedList             *ngapType.PDUSessionResourceFailedToSetupListCxtRes
 	CriticalityDiagnostics *ngapType.CriticalityDiagnostics
+	RanUeNgapId            int64
 }
 
 func (e *SendInitialContextSetupRespEvt) Type() NgapEventType { return SendInitialContextSetupResponse }
@@ -234,8 +234,8 @@ func NewSendUEContextReleaseEvt(ranUeNgapId int64) *SendUEContextReleaseEvt {
 
 // SendPDUSessionResourceReleaseEvt event
 type SendPDUSessionResourceReleaseEvt struct {
-	RanUeNgapId  int64
 	DeletePduIds []int64
+	RanUeNgapId  int64
 }
 
 func (e *SendPDUSessionResourceReleaseEvt) Type() NgapEventType { return SendPDUSessionResourceRelease }

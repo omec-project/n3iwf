@@ -30,60 +30,42 @@ var n3iwfContext N3IWFContext
 // Pools use sync.Map for concurrent access
 // Comments added for clarity
 type N3IWFContext struct {
-	NfInfo           N3iwfNfInfo
-	AmfSctpAddresses []*sctp.SCTPAddr
-	LocalSctpAddress *sctp.SCTPAddr
-
-	// ID generator
-	RanUuNgapIdGenerator *idgenerator.IDGenerator
-	TeidGenerator        *idgenerator.IDGenerator
-
-	// Pools
-	AmfPool                sync.Map // map[string]*N3IWFAMF, SCTPAddr as key
-	AmfReInitAvailableList sync.Map // map[string]bool, SCTPAddr as key
-	IkeSA                  sync.Map // map[uint64]*IKESecurityAssociation, SPI as key
-	ChildSA                sync.Map // map[uint32]*ChildSecurityAssociation, inboundSPI as key
-	GtpConnectionUPF       sync.Map // map[string]*gtpv1.UPlaneConn, UPF address as key
-	AllocatedUeIpAddress   sync.Map // map[string]*N3IWFIkeUe, IPAddr as key
-	AllocatedUeTeid        sync.Map // map[uint32]*RanUe, TEID as key
-	IkeUePool              sync.Map // map[uint64]*N3IWFIkeUe, SPI as key
-	RanUePool              sync.Map // map[int64]*RanUe, RanUeNgapID as key
-	IkeSpiToNgapId         sync.Map // map[uint64]RanUeNgapID, SPI as key
-	NgapIdToIkeSpi         sync.Map // map[uint64]SPI, RanUeNgapID as key
-
-	// N3IWF FQDN
-	Fqdn string
-
-	// Security data
-	CertificateAuthority []byte
-	N3iwfCertificate     []byte
-	N3iwfPrivateKey      *rsa.PrivateKey
-
-	// UEIPAddressRange
-	Subnet *net.IPNet
-
-	// XFRM interface
-	XfrmInterfaceId     uint32
-	XfrmIfaces          sync.Map // map[uint32]*netlink.Link, XfrmInterfaceId as key
-	XfrmInterfaceName   string
-	XfrmParentIfaceName string
-
-	// Every UE's first UP IPsec will use default XFRM interface, additoinal UP IPsec will offset its XFRM id
+	Ctx                    context.Context
+	NgapServer             *NgapServer
+	IkeServer              *IkeServer
+	LocalSctpAddress       *sctp.SCTPAddr
+	RanUuNgapIdGenerator   *idgenerator.IDGenerator
+	TeidGenerator          *idgenerator.IDGenerator
+	GreConn                *ipv4.PacketConn
+	Subnet                 *net.IPNet
+	N3iwfPrivateKey        *rsa.PrivateKey
+	GtpuConn               *gtpv1.UPlaneConn
+	AllocatedUeIpAddress   sync.Map
+	AllocatedUeTeid        sync.Map
+	IkeUePool              sync.Map
+	RanUePool              sync.Map
+	IkeSpiToNgapId         sync.Map
+	NgapIdToIkeSpi         sync.Map
+	XfrmIfaces             sync.Map
+	GtpConnectionUPF       sync.Map
+	ChildSA                sync.Map
+	IkeSA                  sync.Map
+	AmfReInitAvailableList sync.Map
+	AmfPool                sync.Map
+	IpSecGatewayAddress    string
+	XfrmInterfaceName      string
+	XfrmParentIfaceName    string
+	Fqdn                   string
+	IkeBindAddress         string
+	GtpBindAddress         string
+	NfInfo                 N3iwfNfInfo
+	CertificateAuthority   []byte
+	N3iwfCertificate       []byte
+	AmfSctpAddresses       []*sctp.SCTPAddr
+	Wg                     sync.WaitGroup
+	XfrmInterfaceId        uint32
 	XfrmIfaceIdOffsetForUP uint32
-
-	// N3IWF local address
-	IkeBindAddress      string
-	IpSecGatewayAddress string
-	GtpBindAddress      string
-	TcpPort             uint16
-	GreConn             *ipv4.PacketConn
-	GtpuConn            *gtpv1.UPlaneConn
-
-	Ctx context.Context
-	Wg  sync.WaitGroup
-
-	NgapServer *NgapServer
-	IkeServer  *IkeServer
+	TcpPort                uint16
 }
 
 func init() {

@@ -48,9 +48,9 @@ type IkeEvt interface {
 
 // UnmarshalEAP5GDataResponseEvt event
 type UnmarshalEAP5GDataResponseEvt struct {
+	NasPDU      []byte
 	LocalSPI    uint64
 	RanUeNgapId int64
-	NasPDU      []byte
 }
 
 func (e *UnmarshalEAP5GDataResponseEvt) Type() IkeEventType {
@@ -67,8 +67,8 @@ func NewUnmarshalEAP5GDataResponseEvt(localSPI uint64, ranUeNgapId int64, nasPDU
 
 // SendEAP5GFailureMsgEvt event
 type SendEAP5GFailureMsgEvt struct {
-	LocalSPI uint64
 	ErrMsg   EvtError
+	LocalSPI uint64
 }
 
 func (e *SendEAP5GFailureMsgEvt) Type() IkeEventType {
@@ -84,8 +84,8 @@ func NewSendEAP5GFailureMsgEvt(localSPI uint64, errMsg EvtError) *SendEAP5GFailu
 
 // SendEAPNASMsgEvt event
 type SendEAPNASMsgEvt struct {
-	LocalSPI uint64
 	NasPDU   []byte
+	LocalSPI uint64
 }
 
 func (e *SendEAPNASMsgEvt) Type() IkeEventType {
@@ -101,8 +101,8 @@ func NewSendEAPNASMsgEvt(localSPI uint64, nasPDU []byte) *SendEAPNASMsgEvt {
 
 // SendEAPSuccessMsgEvt event
 type SendEAPSuccessMsgEvt struct {
-	LocalSPI          uint64
 	Kn3iwf            []byte
+	LocalSPI          uint64
 	PduSessionListLen int
 }
 
@@ -120,9 +120,9 @@ func NewSendEAPSuccessMsgEvt(localSPI uint64, kn3iwf []byte, pduSessionListLen i
 
 // CreatePDUSessionEvt event
 type CreatePDUSessionEvt struct {
+	TempPDUSessionSetupData *PDUSessionSetupTemporaryData
 	LocalSPI                uint64
 	PduSessionListLen       int
-	TempPDUSessionSetupData *PDUSessionSetupTemporaryData
 }
 
 func (e *CreatePDUSessionEvt) Type() IkeEventType {
@@ -154,8 +154,8 @@ func NewIKEDeleteRequestEvt(localSPI uint64) *IKEDeleteRequestEvt {
 
 // SendChildSADeleteRequestEvt event
 type SendChildSADeleteRequestEvt struct {
-	LocalSPI      uint64
 	ReleaseIdList []int64
+	LocalSPI      uint64
 }
 
 func (e *SendChildSADeleteRequestEvt) Type() IkeEventType {
@@ -171,8 +171,8 @@ func NewSendChildSADeleteRequestEvt(localSPI uint64, releaseIdList []int64) *Sen
 
 // IKEContextUpdateEvt event
 type IKEContextUpdateEvt struct {
-	LocalSPI uint64
 	Kn3iwf   []byte
+	LocalSPI uint64
 }
 
 func (e *IKEContextUpdateEvt) Type() IkeEventType {
@@ -188,9 +188,9 @@ func NewIKEContextUpdateEvt(localSPI uint64, kn3iwf []byte) *IKEContextUpdateEvt
 
 // GetNGAPContextRepEvt event
 type GetNGAPContextRepEvt struct {
-	LocalSPI          uint64
 	NgapCxtReqNumlist []int64
 	NgapCxt           []any
+	LocalSPI          uint64
 }
 
 func (e *GetNGAPContextRepEvt) Type() IkeEventType {

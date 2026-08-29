@@ -35,17 +35,17 @@ func NewMessage(
 func (ikeMessage *IKEMessage) Encode() ([]byte, error) {
 	logger.IKELog.Debugln("encoding IKE message")
 	if len(ikeMessage.Payloads) > 0 {
-		ikeMessage.IKEHeader.NextPayload = ikeMessage.Payloads[0].Type()
+		ikeMessage.NextPayload = ikeMessage.Payloads[0].Type()
 	} else {
-		ikeMessage.IKEHeader.NextPayload = NoNext
+		ikeMessage.NextPayload = NoNext
 	}
 
 	var err error
-	ikeMessage.IKEHeader.PayloadBytes, err = ikeMessage.Payloads.Encode()
+	ikeMessage.PayloadBytes, err = ikeMessage.Payloads.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("encode payload failed: %w", err)
 	}
-	return ikeMessage.IKEHeader.Marshal()
+	return ikeMessage.Marshal()
 }
 
 func (ikeMessage *IKEMessage) Decode(rawData []byte) error {
@@ -224,26 +224,26 @@ type SecurityAssociation struct {
 type ProposalContainer []*Proposal
 
 type Proposal struct {
-	ProposalNumber          uint8
-	ProtocolID              uint8
 	SPI                     []byte
 	EncryptionAlgorithm     TransformContainer
 	PseudorandomFunction    TransformContainer
 	IntegrityAlgorithm      TransformContainer
 	DiffieHellmanGroup      TransformContainer
 	ExtendedSequenceNumbers TransformContainer
+	ProposalNumber          uint8
+	ProtocolID              uint8
 }
 
 type TransformContainer []*Transform
 
 type Transform struct {
-	TransformType                uint8
+	VariableLengthAttributeValue []byte
 	TransformID                  uint16
-	AttributePresent             bool
-	AttributeFormat              uint8
 	AttributeType                uint16
 	AttributeValue               uint16
-	VariableLengthAttributeValue []byte
+	TransformType                uint8
+	AttributePresent             bool
+	AttributeFormat              uint8
 }
 
 func (securityAssociation *SecurityAssociation) Type() IKEPayloadType { return TypeSA }
@@ -464,8 +464,8 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 var _ IKEPayload = &KeyExchange{}
 
 type KeyExchange struct {
-	DiffieHellmanGroup uint16
 	KeyExchangeData    []byte
+	DiffieHellmanGroup uint16
 }
 
 func (keyExchange *KeyExchange) Type() IKEPayloadType { return TypeKE }
@@ -503,8 +503,8 @@ func (keyExchange *KeyExchange) unmarshal(rawData []byte) error {
 var _ IKEPayload = &IdentificationInitiator{}
 
 type IdentificationInitiator struct {
-	IDType uint8
 	IDData []byte
+	IDType uint8
 }
 
 func (identification *IdentificationInitiator) Type() IKEPayloadType { return TypeIDi }
@@ -542,8 +542,8 @@ func (identification *IdentificationInitiator) unmarshal(rawData []byte) error {
 var _ IKEPayload = &IdentificationResponder{}
 
 type IdentificationResponder struct {
-	IDType uint8
 	IDData []byte
+	IDType uint8
 }
 
 func (identification *IdentificationResponder) Type() IKEPayloadType { return TypeIDr }
@@ -581,8 +581,8 @@ func (identification *IdentificationResponder) unmarshal(rawData []byte) error {
 var _ IKEPayload = &Certificate{}
 
 type Certificate struct {
-	CertificateEncoding uint8
 	CertificateData     []byte
+	CertificateEncoding uint8
 }
 
 func (certificate *Certificate) Type() IKEPayloadType { return TypeCERT }
@@ -620,8 +620,8 @@ func (certificate *Certificate) unmarshal(rawData []byte) error {
 var _ IKEPayload = &CertificateRequest{}
 
 type CertificateRequest struct {
-	CertificateEncoding    uint8
 	CertificationAuthority []byte
+	CertificateEncoding    uint8
 }
 
 func (certificateRequest *CertificateRequest) Type() IKEPayloadType { return TypeCERTreq }
@@ -659,8 +659,8 @@ func (certificateRequest *CertificateRequest) unmarshal(rawData []byte) error {
 var _ IKEPayload = &Authentication{}
 
 type Authentication struct {
-	AuthenticationMethod uint8
 	AuthenticationData   []byte
+	AuthenticationMethod uint8
 }
 
 func (authentication *Authentication) Type() IKEPayloadType { return TypeAUTH }
@@ -728,10 +728,10 @@ func (nonce *Nonce) unmarshal(rawData []byte) error {
 var _ IKEPayload = &Notification{}
 
 type Notification struct {
-	ProtocolID        uint8
-	NotifyMessageType uint16
 	SPI               []byte
 	NotificationData  []byte
+	NotifyMessageType uint16
+	ProtocolID        uint8
 }
 
 func (notification *Notification) Type() IKEPayloadType { return TypeN }
@@ -784,10 +784,10 @@ func (notification *Notification) unmarshal(rawData []byte) error {
 var _ IKEPayload = &Delete{}
 
 type Delete struct {
+	SPIs        []uint32
+	NumberOfSPI uint16
 	ProtocolID  uint8
 	SPISize     uint8
-	NumberOfSPI uint16
-	SPIs        []uint32
 }
 
 func (del *Delete) Type() IKEPayloadType { return TypeD }
@@ -883,12 +883,12 @@ type TrafficSelectorInitiator struct {
 type IndividualTrafficSelectorContainer []*IndividualTrafficSelector
 
 type IndividualTrafficSelector struct {
-	TSType       uint8
-	IPProtocolID uint8
-	StartPort    uint16
-	EndPort      uint16
 	StartAddress []byte
 	EndAddress   []byte
+	StartPort    uint16
+	EndPort      uint16
+	TSType       uint8
+	IPProtocolID uint8
 }
 
 func (trafficSelector *TrafficSelectorInitiator) Type() IKEPayloadType { return TypeTSi }
@@ -1216,8 +1216,8 @@ func (trafficSelector *TrafficSelectorResponder) unmarshal(rawData []byte) error
 var _ IKEPayload = &Encrypted{}
 
 type Encrypted struct {
-	NextPayload   IKEPayloadType
 	EncryptedData []byte
+	NextPayload   IKEPayloadType
 }
 
 func (encrypted *Encrypted) Type() IKEPayloadType { return TypeSK }
@@ -1244,15 +1244,15 @@ func (encrypted *Encrypted) unmarshal(rawData []byte) error {
 var _ IKEPayload = &Configuration{}
 
 type Configuration struct {
-	ConfigurationType      uint8
 	ConfigurationAttribute ConfigurationAttributeContainer
+	ConfigurationType      uint8
 }
 
 type ConfigurationAttributeContainer []*IndividualConfigurationAttribute
 
 type IndividualConfigurationAttribute struct {
-	Type  uint16
 	Value []byte
+	Type  uint16
 }
 
 func (configuration *Configuration) Type() IKEPayloadType { return TypeCP }
@@ -1324,9 +1324,9 @@ func (configuration *Configuration) unmarshal(rawData []byte) error {
 var _ IKEPayload = &EAP{}
 
 type EAP struct {
+	EAPTypeData EAPTypeDataContainer
 	Code        uint8
 	Identifier  uint8
-	EAPTypeData EAPTypeDataContainer
 }
 
 func (eap *EAP) Type() IKEPayloadType { return TypeEAP }
@@ -1523,9 +1523,9 @@ func (eapNak *EAPNak) unmarshal(rawData []byte) error {
 var _ EAPTypeFormat = &EAPExpanded{}
 
 type EAPExpanded struct {
+	VendorData []byte
 	VendorID   uint32
 	VendorType uint32
-	VendorData []byte
 }
 
 func (eapExpanded *EAPExpanded) Type() EAPType { return EAPTypeExpanded }

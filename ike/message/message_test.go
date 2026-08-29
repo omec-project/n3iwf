@@ -427,10 +427,10 @@ var (
 
 func TestDecode(t *testing.T) {
 	testcases := []struct {
+		expIkeMsg   *IKEMessage
 		description string
 		b           []byte
 		expErr      bool
-		expIkeMsg   *IKEMessage
 	}{
 		{
 			description: "decode IKE_INIT",
@@ -476,10 +476,10 @@ func TestDecode(t *testing.T) {
 
 func TestEncode(t *testing.T) {
 	testcases := []struct {
-		description string
 		ikeMsg      *IKEMessage
-		expErr      bool
+		description string
 		expByte     []byte
+		expErr      bool
 	}{
 		{
 			description: "IKE_INIT encode",

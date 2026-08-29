@@ -32,27 +32,27 @@ type Info struct {
 
 // Configuration contains all N3IWF-specific settings
 type Configuration struct {
-	N3iwfInfo            context.N3iwfNfInfo        `yaml:"n3iwfInformation"`           // N3IWF network function info
-	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`           // AMF SCTP addresses
-	LocalSctpAddress     string                     `yaml:"localSctpAddress,omitempty"` // Local SCTP address (optional)
-	IkeBindAddress       string                     `yaml:"ikeBindAddress"`             // IKE bind address
-	IpSecAddress         string                     `yaml:"ipSecAddress"`               // IPsec address range (e.g. 10.0.1.0/24)
-	GtpBindAddress       string                     `yaml:"gtpBindAddress"`             // GTP bind address
-	TcpPort              uint16                     `yaml:"nasTcpPort"`                 // NAS TCP port
-	Fqdn                 string                     `yaml:"fqdn"`                       // FQDN (e.g. n3iwf.aether.org)
-	PrivateKey           string                     `yaml:"privateKey"`                 // Private key path
-	CertificateAuthority string                     `yaml:"certificateAuthority"`       // CA certificate path
-	Certificate          string                     `yaml:"certificate"`                // Certificate path
-	XfrmInterfaceName    string                     `yaml:"xfrmInterfaceName"`          // XFRM interface name
-	XfrmInterfaceId      uint32                     `yaml:"xfrmInterfaceId"`            // XFRM interface ID (must be != 0)
-	LivenessCheck        TimerValue                 `yaml:"livenessCheck"`              // Liveness check settings
+	CertificateAuthority string                     `yaml:"certificateAuthority"`
+	Certificate          string                     `yaml:"certificate"`
+	LocalSctpAddress     string                     `yaml:"localSctpAddress,omitempty"`
+	IkeBindAddress       string                     `yaml:"ikeBindAddress"`
+	IpSecAddress         string                     `yaml:"ipSecAddress"`
+	GtpBindAddress       string                     `yaml:"gtpBindAddress"`
+	PrivateKey           string                     `yaml:"privateKey"`
+	Fqdn                 string                     `yaml:"fqdn"`
+	XfrmInterfaceName    string                     `yaml:"xfrmInterfaceName"`
+	N3iwfInfo            context.N3iwfNfInfo        `yaml:"n3iwfInformation"`
+	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
+	LivenessCheck        TimerValue                 `yaml:"livenessCheck"`
+	XfrmInterfaceId      uint32                     `yaml:"xfrmInterfaceId"`
+	TcpPort              uint16                     `yaml:"nasTcpPort"`
 }
 
 // TimerValue configures liveness check timers
 type TimerValue struct {
-	Enable        bool          `yaml:"enable"`                  // Enable liveness check
-	TransFreq     time.Duration `yaml:"transFreq"`               // Transmission frequency
-	MaxRetryTimes int32         `yaml:"maxRetryTimes,omitempty"` // Maximum retry times (optional)
+	TransFreq     time.Duration `yaml:"transFreq"`
+	MaxRetryTimes int32         `yaml:"maxRetryTimes,omitempty"`
+	Enable        bool          `yaml:"enable"`
 }
 
 // getVersion returns the configuration version if set, otherwise returns empty string

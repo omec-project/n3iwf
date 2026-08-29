@@ -261,7 +261,8 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 			return
 		}
 		ikeSecurityAssociation.Prf_i.Reset()
-		if _, err := ikeSecurityAssociation.Prf_i.Write(idPayloadData[4:]); err != nil {
+		_, err = ikeSecurityAssociation.Prf_i.Write(idPayloadData[4:])
+		if err != nil {
 			logger.IKELog.Errorf("pseudorandom function write error: %v", err)
 			return
 		}
@@ -387,7 +388,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 				message.IKE_AUTH, true, false, ikeMsg.MessageID, responseIKEPayload)
 
 			// Send IKE ikeMsg to UE
-			err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
+			err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage,
 				ikeSecurityAssociation.IKESAKey)
 			if err != nil {
 				logger.IKELog.Errorf("HandleIKEAUTH(): %v", err)
@@ -423,7 +424,8 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 		// Authentication Data
 		logger.IKELog.Debugf("local authentication data:\n%s", hex.Dump(ikeSecurityAssociation.ResponderSignedOctets))
 		sha1HashFunction := sha1.New()
-		if _, err := sha1HashFunction.Write(ikeSecurityAssociation.ResponderSignedOctets); err != nil {
+		_, err = sha1HashFunction.Write(ikeSecurityAssociation.ResponderSignedOctets)
+		if err != nil {
 			logger.IKELog.Errorf("hash function write error: %+v", err)
 			return
 		}
@@ -621,7 +623,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 
 		// Parse configuration request to get if the UE has requested internal address,
 		// and prepare configuration payload to UE
-		var addrRequest bool = false
+		addrRequest := false
 
 		if configuration != nil {
 			logger.IKELog.Debugf("received configuration payload with type: %d", configuration.ConfigurationType)
@@ -744,7 +746,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 		// Select TCP traffic
 		childSecurityAssociationContext.SelectedIPProtocol = unix.IPPROTO_TCP
 
-		if err := childSecurityAssociationContext.ChildSAKey.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
+		if err = childSecurityAssociationContext.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
 			logger.IKELog.Errorf("generate key for child SA failed: %+v", err)
 			return
 		}
@@ -939,7 +941,7 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 	// Select GRE traffic
 	childSecurityAssociationContext.SelectedIPProtocol = unix.IPPROTO_GRE
 
-	if err := childSecurityAssociationContext.ChildSAKey.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
+	if err = childSecurityAssociationContext.GenerateKeyForChildSA(ikeSecurityAssociation.IKESAKey, ikeSecurityAssociation.ConcatenatedNonce); err != nil {
 		logger.IKELog.Errorf("generate key for child SA failed: %+v", err)
 		return
 	}
@@ -1513,7 +1515,7 @@ func StartDPD(ikeUe *context.N3IWFIkeUe) {
 					ikeSA.ResponderMessageID, ikeUe.IKEConnection.Conn, ikeUe.IKEConnection.UEAddr,
 					ikeUe.IKEConnection.N3IWFAddr)
 
-				var DPDReqRetransTime time.Duration = 2 * time.Second // TODO: make it configurable
+				DPDReqRetransTime := 2 * time.Second // TODO: make it configurable
 				ikeSA.DPDReqRetransTimer = context.NewDPDPeriodicTimer(
 					DPDReqRetransTime, liveness.MaxRetryTimes, ikeSA,
 					func() {

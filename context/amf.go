@@ -18,25 +18,23 @@ import (
 // N3IWFAMF represents an AMF context for N3IWF
 // Holds SCTP connection, AMF info, and UE associations
 type N3IWFAMF struct {
-	SCTPAddr              string
 	SCTPConn              *sctp.SCTPConn
 	AMFName               *ngapType.AMFName
 	ServedGUAMIList       *ngapType.ServedGUAMIList
 	RelativeAMFCapacity   *ngapType.RelativeAMFCapacity
 	PLMNSupportList       *ngapType.PLMNSupportList
-	AMFTNLAssociationList map[string]*AMFTNLAssociationItem // v4+v6 as key
-	// Overload related
-	AMFOverloadContent *AMFOverloadContent
-	// Relative Context
-	N3iwfRanUeList map[int64]RanUe // ranUeNgapId as key
+	AMFTNLAssociationList map[string]*AMFTNLAssociationItem
+	AMFOverloadContent    *AMFOverloadContent
+	N3iwfRanUeList        map[int64]RanUe
+	SCTPAddr              string
 }
 
 // AMFTNLAssociationItem holds TNL association info
 type AMFTNLAssociationItem struct {
-	Ipv4                   string
-	Ipv6                   string
 	TNLAssociationUsage    *ngapType.TNLAssociationUsage
 	TNLAddressWeightFactor *int64
+	Ipv4                   string
+	Ipv6                   string
 }
 
 // AMFOverloadContent holds overload info for AMF
@@ -48,9 +46,9 @@ type AMFOverloadContent struct {
 
 // SliceOverloadItem holds overload info for a slice
 type SliceOverloadItem struct {
-	SNssaiList []ngapType.SNSSAI
 	Action     *ngapType.OverloadAction
 	TrafficInd *int64
+	SNssaiList []ngapType.SNSSAI
 }
 
 // init initializes the N3IWFAMF struct

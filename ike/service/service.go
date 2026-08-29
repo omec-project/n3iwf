@@ -213,7 +213,7 @@ func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *ne
 		payload.BuildNotification(message.TypeNone, message.INVALID_MAJOR_VERSION, nil, nil)
 		responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,
 			message.INFORMATIONAL, true, false, ikeHeader.MessageID, *payload)
-		if err := handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
+		if err = handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
 			logger.IKELog.Errorf("check IKE message: %v", err)
 			return nil, nil, fmt.Errorf("received an IKE message with higher major version (%d>2): %w", ikeHeader.MajorVersion, err)
 		}
@@ -239,7 +239,7 @@ func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *ne
 			payload.BuildNotification(message.TypeNone, message.INVALID_IKE_SPI, nil, nil)
 			responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,
 				message.INFORMATIONAL, true, false, ikeHeader.MessageID, *payload)
-			if err := handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
+			if err = handler.SendIKEMessageToUE(udpConn, localAddr, remoteAddr, responseIKEMessage, nil); err != nil {
 				logger.IKELog.Errorf("check Ike message: %v", err)
 				return nil, nil, fmt.Errorf("check Ike message: %w", err)
 			}
@@ -348,8 +348,8 @@ func handleESPPacket(srcIP, dstIP *net.UDPAddr, espPacket []byte) error {
 		return fmt.Errorf("socket error: %v", err)
 	}
 	defer func() {
-		if err := syscall.Close(fd); err != nil {
-			logger.IKELog.Errorf("close fd error: %v", err)
+		if closeErr := syscall.Close(fd); closeErr != nil {
+			logger.IKELog.Errorf("close fd error: %v", closeErr)
 		}
 	}()
 	ipPacket, err := constructPacketWithESP(srcIP, dstIP, espPacket)
