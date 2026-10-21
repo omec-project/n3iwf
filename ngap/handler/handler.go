@@ -2802,26 +2802,32 @@ func HandleSendPDUSessionResourceSetupResponse(ngapEvent context.NgapEvt) {
 
 	if len(temporaryPDUSessionSetupData.UnactivatedPDUSession) != 0 {
 		for index, pduSession := range temporaryPDUSessionSetupData.UnactivatedPDUSession {
-			if index >= len(temporaryPDUSessionSetupData.FailedErrStr) {
-				logger.NgapLog.Errorf("no failure reason recorded for PDU session index %d", index)
-				continue
-			}
-			errStr := temporaryPDUSessionSetupData.FailedErrStr[index]
-			if errStr != context.ErrNil {
-				var cause ngapType.Cause
-				switch errStr {
-				case context.ErrTransportResourceUnavailable:
-					cause = ngapType.Cause{
-						Present: ngapType.CausePresentTransport,
-						Transport: &ngapType.CauseTransport{
-							Value: ngapType.CauseTransportPresentTransportResourceUnavailable,
-						},
-					}
-				default:
-					logger.NgapLog.Errorf("undefined event error string: %+s", errStr.Error())
-					return
-				}
+			var cause ngapType.Cause
+			failed := true
 
+			switch {
+			case index >= len(temporaryPDUSessionSetupData.FailedErrStr):
+				logger.NgapLog.Errorf("no failure reason recorded for PDU session index %d; marking as failed", index)
+				cause = ngapType.Cause{
+					Present: ngapType.CausePresentMisc,
+					Misc:    &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnspecified},
+				}
+			case temporaryPDUSessionSetupData.FailedErrStr[index] == context.ErrTransportResourceUnavailable:
+				cause = ngapType.Cause{
+					Present: ngapType.CausePresentTransport,
+					Transport: &ngapType.CauseTransport{
+						Value: ngapType.CauseTransportPresentTransportResourceUnavailable,
+					},
+				}
+			case temporaryPDUSessionSetupData.FailedErrStr[index] != context.ErrNil:
+				errStr := temporaryPDUSessionSetupData.FailedErrStr[index]
+				logger.NgapLog.Errorf("undefined event error string: %+s", errStr.Error())
+				return
+			default:
+				failed = false
+			}
+
+			if failed {
 				transfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(cause, nil)
 				if err != nil {
 					logger.NgapLog.Errorf("build PDU Session Resource Setup Unsuccessful Transfer Failed: %+v", err)

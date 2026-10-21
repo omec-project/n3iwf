@@ -844,6 +844,8 @@ func (del *Delete) unmarshal(rawData []byte) error {
 			for i := 0; i < int(numberOfSPI); i++ {
 				del.SPIs = append(del.SPIs, binary.BigEndian.Uint32(rawData[4*i:4*i+4]))
 			}
+		} else if numberOfSPI > 0 {
+			return errors.New("unsupported SPI size in delete payload")
 		}
 	}
 
