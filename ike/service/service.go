@@ -90,18 +90,34 @@ func runIkeEventHandler(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
 	for {
 		select {
 		case rcvPkt := <-n3iwfCtx.IkeServer.RcvIkePktCh:
-			ikeMsg, ikeSA, err := checkIKEMessage(rcvPkt.Msg, rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr)
-			if err != nil {
-				logger.IKELog.Warnln(err)
-				continue
-			}
-			ike.Dispatch(rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr, ikeMsg, rcvPkt.Msg, ikeSA)
+			handleIkePacket(rcvPkt)
 		case rcvIkeEvent := <-n3iwfCtx.IkeServer.RcvEventCh:
-			handler.HandleEvent(rcvIkeEvent)
+			handleIkeEvent(rcvIkeEvent)
 		case <-n3iwfCtx.IkeServer.StopServer:
 			return
 		}
 	}
+}
+
+// handleIkePacket decodes and dispatches one packet. A panic caused by a malformed
+// packet is recovered here so that it cannot terminate the event loop.
+func handleIkePacket(rcvPkt context.IkeReceivePacket) {
+	defer util.RecoverWithLog(logger.IKELog)
+
+	ikeMsg, ikeSA, err := checkIKEMessage(rcvPkt.Msg, rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr)
+	if err != nil {
+		logger.IKELog.Warnln(err)
+		return
+	}
+	ike.Dispatch(rcvPkt.Listener, rcvPkt.LocalAddr, rcvPkt.RemoteAddr, ikeMsg, rcvPkt.Msg, ikeSA)
+}
+
+// handleIkeEvent handles one internal event, recovering from panics so that one bad
+// event cannot terminate the event loop.
+func handleIkeEvent(rcvIkeEvent context.IkeEvt) {
+	defer util.RecoverWithLog(logger.IKELog)
+
+	handler.HandleEvent(rcvIkeEvent)
 }
 
 // receiver listens for UDP packets and forwards valid IKE messages

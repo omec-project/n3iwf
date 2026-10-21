@@ -1086,7 +1086,11 @@ func HandleUnmarshalEAP5GDataResponse(ikeEvt context.IkeEvt) {
 	nasPDU := unmarshalEAP5GDataResponseEvt.NasPDU
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
 
 	// Create UE context
 	ikeUe := n3iwfCtx.NewN3iwfIkeUe(localSPI)
@@ -1114,7 +1118,11 @@ func HandleSendEAP5GFailureMsg(ikeEvt context.IkeEvt) {
 	localSPI := sendEAP5GFailureMsgEvt.LocalSPI
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
 	logger.IKELog.Warnf("EAP Failure: %s", errMsg.Error())
 
 	var responseIKEPayload message.IKEPayloadContainer
@@ -1150,7 +1158,16 @@ func HandleSendEAPSuccessMsg(ikeEvt context.IkeEvt) {
 	pduSessionListLen := sendEAPSuccessMsgEvt.PduSessionListLen
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
+
+	if ikeSecurityAssociation.IkeUE == nil {
+		logger.IKELog.Errorf("IKE SA %016x has no IkeUE", localSPI)
+		return
+	}
 
 	if kn3iwf != nil {
 		ikeSecurityAssociation.IkeUE.Kn3iwf = kn3iwf
@@ -1204,7 +1221,11 @@ func HandleSendEAPNASMsg(ikeEvt context.IkeEvt) {
 	nasPDU := sendEAPNASMsgEvt.NasPDU
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
 
 	var responseIKEPayload message.IKEPayloadContainer
 	responseIKEPayload.Reset()
@@ -1252,7 +1273,16 @@ func HandleCreatePDUSession(ikeEvt context.IkeEvt) {
 	temporaryPDUSessionSetupData := createPDUSessionEvt.TempPDUSessionSetupData
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
+
+	if ikeSecurityAssociation.IkeUE == nil {
+		logger.IKELog.Errorf("IKE SA %016x has no IkeUE", localSPI)
+		return
+	}
 
 	ikeSecurityAssociation.IkeUE.PduSessionListLen = createPDUSessionEvt.PduSessionListLen
 
@@ -1331,17 +1361,31 @@ func HandleGetNGAPContextResponse(ikeEvt context.IkeEvt) {
 	ngapCxt := getNGAPContextRepEvt.NgapCxt
 
 	n3iwfCtx := context.N3IWFSelf()
-	ikeSecurityAssociation, _ := n3iwfCtx.IKESALoad(localSPI)
+	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
+	if !ok {
+		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		return
+	}
 
 	var tempPDUSessionSetupData *context.PDUSessionSetupTemporaryData
 
 	for i, num := range ngapCxtReqNumlist {
 		switch num {
 		case context.CxtTempPDUSessionSetupData:
-			tempPDUSessionSetupData = ngapCxt[i].(*context.PDUSessionSetupTemporaryData)
+			data, ok := ngapCxt[i].(*context.PDUSessionSetupTemporaryData)
+			if !ok {
+				logger.IKELog.Errorf("unexpected NGAP context type %T", ngapCxt[i])
+				return
+			}
+			tempPDUSessionSetupData = data
 		default:
 			logger.IKELog.Errorf("receive undefined NGAP context request number: %d", num)
 		}
+	}
+
+	if ikeSecurityAssociation.IkeUE == nil || tempPDUSessionSetupData == nil {
+		logger.IKELog.Errorf("cannot continue PDU session setup for IKE SA %016x: missing UE or setup data", localSPI)
+		return
 	}
 
 	switch ikeSecurityAssociation.State {

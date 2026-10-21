@@ -384,16 +384,16 @@ func (securityAssociation *SecurityAssociation) unmarshal(rawData []byte) error 
 		proposal.ProposalNumber = rawData[4]
 		proposal.ProtocolID = rawData[5]
 
-		spiSize := rawData[6]
-		if spiSize > 0 {
-			// bounds checking
-			if err := checkLen(rawData, int(8+spiSize), "no sufficient bytes for unmarshalling SPI of proposal"); err != nil {
-				return err
-			}
-			proposal.SPI = append(proposal.SPI, rawData[8:8+spiSize]...)
+		// spiSize is a byte: widen before adding so the sum cannot wrap
+		spiEnd := 8 + int(rawData[6])
+		if spiEnd > int(proposalLength) {
+			return errors.New("no sufficient bytes for unmarshalling SPI of proposal")
+		}
+		if spiEnd > 8 {
+			proposal.SPI = append(proposal.SPI, rawData[8:spiEnd]...)
 		}
 
-		transformData = rawData[8+spiSize : proposalLength]
+		transformData = rawData[spiEnd:proposalLength]
 
 		for len(transformData) > 0 {
 			// bounds checking
@@ -766,15 +766,16 @@ func (notification *Notification) unmarshal(rawData []byte) error {
 			return errors.New("no sufficient bytes to decode next notification")
 		}
 		spiSize := rawData[1]
-		if len(rawData) < int(4+spiSize) {
+		spiEnd := 4 + int(spiSize)
+		if len(rawData) < spiEnd {
 			return errors.New("no sufficient bytes to get SPI according to the length specified in header")
 		}
 
 		notification.ProtocolID = rawData[0]
 		notification.NotifyMessageType = binary.BigEndian.Uint16(rawData[2:4])
 
-		notification.SPI = append(notification.SPI, rawData[4:4+spiSize]...)
-		notification.NotificationData = append(notification.NotificationData, rawData[4+spiSize:]...)
+		notification.SPI = append(notification.SPI, rawData[4:spiEnd]...)
+		notification.NotificationData = append(notification.NotificationData, rawData[spiEnd:]...)
 	}
 
 	return nil
@@ -836,11 +837,13 @@ func (del *Delete) unmarshal(rawData []byte) error {
 		del.SPISize = spiSize
 		del.NumberOfSPI = numberOfSPI
 
+		// Only ESP SPIs (4 octets) are decoded; the length check above guarantees
+		// spiSize*numberOfSPI bytes are present.
 		rawData = rawData[4:]
-		var spi uint32
-		for i := 0; i < len(rawData); i += 4 {
-			spi = binary.BigEndian.Uint32(rawData[i : i+4])
-			del.SPIs = append(del.SPIs, spi)
+		if spiSize == 4 {
+			for i := 0; i < int(numberOfSPI); i++ {
+				del.SPIs = append(del.SPIs, binary.BigEndian.Uint32(rawData[4*i:4*i+4]))
+			}
 		}
 	}
 
@@ -1302,7 +1305,7 @@ func (configuration *Configuration) unmarshal(rawData []byte) error {
 				return errors.New("no sufficient bytes to decode next configuration attribute")
 			}
 			length := binary.BigEndian.Uint16(configurationAttributeData[2:4])
-			if len(configurationAttributeData) < int(4+length) {
+			if len(configurationAttributeData) < 4+int(length) {
 				return errors.New("TLV attribute length error")
 			}
 

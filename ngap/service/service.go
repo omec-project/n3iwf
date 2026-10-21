@@ -72,9 +72,17 @@ func runNgapEventHandler(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 			}
 			ngap.Dispatch(rcvPkt.Conn, rcvPkt.Buf)
 		case rcvEvt := <-ngapServer.RcvEventCh:
-			handler.HandleEvent(rcvEvt)
+			handleNgapEvent(rcvEvt)
 		}
 	}
+}
+
+// handleNgapEvent handles one internal event, recovering from panics so that one bad
+// event cannot terminate the NGAP event loop.
+func handleNgapEvent(rcvEvt context.NgapEvt) {
+	defer util.RecoverWithLog(logger.NgapLog)
+
+	handler.HandleEvent(rcvEvt)
 }
 
 // handleConnError closes the connection and sends an error to errChan

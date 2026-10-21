@@ -599,3 +599,54 @@ func TestNewAndEncodeIKEHeader(t *testing.T) {
 		t.Errorf("Encoded bytes mismatch. got = %v, want = %v", b, expectedBytes)
 	}
 }
+
+// Malformed payloads whose 8-bit/16-bit length arithmetic used to wrap must be
+// rejected with an error and must not panic.
+func TestDecodeMalformedPayloadsDoNotPanic(t *testing.T) {
+	tests := []struct {
+		name    string
+		typ     IKEPayloadType
+		rawData []byte
+	}{
+		{
+			// SPI size 255 is larger than the proposal length (8)
+			name:    "SA proposal SPI size exceeds proposal length",
+			typ:     TypeSA,
+			rawData: append([]byte{0, 0, 0, 8, 1, 1, 255, 0}, make([]byte, 255)...),
+		},
+		{
+			// 4+255 wraps to 3 in uint8 arithmetic
+			name:    "notification SPI size 255 with short payload",
+			typ:     TypeN,
+			rawData: []byte{0, 255, 0, 0},
+		},
+		{
+			// 4+65535 wraps to 3 in uint16 arithmetic
+			name:    "configuration attribute length 65535",
+			typ:     TypeCP,
+			rawData: []byte{1, 0, 0, 0, 0, 1, 255, 255},
+		},
+		{
+			// 2 SPIs of 4 octets announced, only 6 octets present
+			name:    "delete payload with truncated SPI list",
+			typ:     TypeD,
+			rawData: []byte{3, 4, 0, 2, 0, 0, 0, 1, 0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Decode panicked: %v", r)
+				}
+			}()
+			// prepend the generic payload header: next payload, flags, length
+			raw := append([]byte{0, 0, byte((4 + len(tt.rawData)) >> 8), byte(4 + len(tt.rawData))}, tt.rawData...)
+			var container IKEPayloadContainer
+			if err := container.Decode(tt.typ, raw); err == nil {
+				t.Error("expected an error for malformed payload")
+			}
+		})
+	}
+}

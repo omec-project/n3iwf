@@ -52,6 +52,10 @@ func UnmarshalEAP5GData(codedData []byte) (anParameters *ANParameters, nasPDU []
 			parameterType := anParameterField[0]
 			parameterLength := anParameterField[1]
 
+			if len(anParameterField) < 2+int(parameterLength) {
+				return nil, nil, errors.New("error formatting")
+			}
+
 			switch parameterType {
 			case ANParametersTypeGUAMI:
 				logger.NgapLog.Debugf("-> Parameter type: GUAMI")
@@ -227,12 +231,12 @@ func UnmarshalEAP5GData(codedData []byte) (anParameters *ANParameters, nasPDU []
 			}
 
 			// shift anParameterField
-			anParameterField = anParameterField[2+parameterLength:]
+			anParameterField = anParameterField[2+int(parameterLength):]
 		}
 	}
 
 	// shift codedData
-	codedData = codedData[2+anParameterLength:]
+	codedData = codedData[2+int(anParameterLength):]
 
 	if len(codedData) < 2 {
 		logger.NgapLog.Errorln("no NASPDU length specified")
