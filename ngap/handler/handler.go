@@ -1273,7 +1273,12 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 
 				if ue.IsNASTCPConnEstablishedComplete {
 					// Send to UE
-					if n, err := ue.TCPConnection.Write(nasEnv); err != nil {
+					tcpConn := ue.TCPConnection
+					if tcpConn == nil {
+						logger.NgapLog.Errorln("no IPSec NAS signalling SA for this UE")
+						return
+					}
+					if n, err := tcpConn.Write(nasEnv); err != nil {
 						logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %v", err)
 					} else {
 						logger.NgapLog.Debugln("forward NWu <- N2")
@@ -2730,6 +2735,11 @@ func HandleUnmarshalEAP5GData(ngapEvent context.NgapEvt) {
 			n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAP5GFailureMsgEvt(spi, context.ErrAMFSelection)
 		} else {
 			n3iwfUe := n3iwfCtx.NewN3iwfRanUe()
+			if n3iwfUe == nil {
+				logger.NgapLog.Errorln("failed to allocate N3IWF RAN UE")
+				n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAP5GFailureMsgEvt(spi, context.ErrAMFSelection)
+				return
+			}
 			n3iwfUe.AMF = selectedAMF
 			if anParameters.EstablishmentCause != nil {
 				value := uint64(anParameters.EstablishmentCause.Value)
@@ -2792,22 +2802,32 @@ func HandleSendPDUSessionResourceSetupResponse(ngapEvent context.NgapEvt) {
 
 	if len(temporaryPDUSessionSetupData.UnactivatedPDUSession) != 0 {
 		for index, pduSession := range temporaryPDUSessionSetupData.UnactivatedPDUSession {
-			errStr := temporaryPDUSessionSetupData.FailedErrStr[index]
-			if errStr != context.ErrNil {
-				var cause ngapType.Cause
-				switch errStr {
-				case context.ErrTransportResourceUnavailable:
-					cause = ngapType.Cause{
-						Present: ngapType.CausePresentTransport,
-						Transport: &ngapType.CauseTransport{
-							Value: ngapType.CauseTransportPresentTransportResourceUnavailable,
-						},
-					}
-				default:
-					logger.NgapLog.Errorf("undefined event error string: %+s", errStr.Error())
-					return
-				}
+			var cause ngapType.Cause
+			failed := true
 
+			switch {
+			case index >= len(temporaryPDUSessionSetupData.FailedErrStr):
+				logger.NgapLog.Errorf("no failure reason recorded for PDU session index %d; marking as failed", index)
+				cause = ngapType.Cause{
+					Present: ngapType.CausePresentMisc,
+					Misc:    &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnspecified},
+				}
+			case temporaryPDUSessionSetupData.FailedErrStr[index] == context.ErrTransportResourceUnavailable:
+				cause = ngapType.Cause{
+					Present: ngapType.CausePresentTransport,
+					Transport: &ngapType.CauseTransport{
+						Value: ngapType.CauseTransportPresentTransportResourceUnavailable,
+					},
+				}
+			case temporaryPDUSessionSetupData.FailedErrStr[index] != context.ErrNil:
+				errStr := temporaryPDUSessionSetupData.FailedErrStr[index]
+				logger.NgapLog.Errorf("undefined event error string: %+s", errStr.Error())
+				return
+			default:
+				failed = false
+			}
+
+			if failed {
 				transfer, err := message.BuildPDUSessionResourceSetupUnsuccessfulTransfer(cause, nil)
 				if err != nil {
 					logger.NgapLog.Errorf("build PDU Session Resource Setup Unsuccessful Transfer Failed: %+v", err)
@@ -2877,7 +2897,13 @@ func HandleSendNASMsg(ngapEvent context.NgapEvt) {
 		return
 	}
 
-	if n, ikeErr := n3iwfUe.TCPConnection.Write(n3iwfUe.TemporaryCachedNASMessage); ikeErr != nil {
+	tcpConn := n3iwfUe.TCPConnection
+	if tcpConn == nil {
+		logger.NgapLog.Errorln("no IPSec NAS signalling SA for this UE")
+		return
+	}
+
+	if n, ikeErr := tcpConn.Write(n3iwfUe.TemporaryCachedNASMessage); ikeErr != nil {
 		logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %+v", ikeErr)
 	} else {
 		logger.NgapLog.Debugf("forward PDU Seesion Establishment Accept to UE. Wrote %d bytes", n)
@@ -2929,7 +2955,12 @@ func HandleNASTCPConnEstablishedComplete(ngapEvent context.NgapEvt) {
 
 	if n3iwfUe.TemporaryCachedNASMessage != nil {
 		// Send to UE
-		if n, err := n3iwfUe.TCPConnection.Write(n3iwfUe.TemporaryCachedNASMessage); err != nil {
+		tcpConn := n3iwfUe.TCPConnection
+		if tcpConn == nil {
+			logger.NgapLog.Errorln("no IPSec NAS signalling SA for this UE")
+			return
+		}
+		if n, err := tcpConn.Write(n3iwfUe.TemporaryCachedNASMessage); err != nil {
 			logger.NgapLog.Errorf("writing via IPSec signalling SA failed: %+v", err)
 		} else {
 			logger.NgapLog.Debugln("forward NWu <- N2")
@@ -2955,6 +2986,11 @@ func HandleSendUEContextReleaseRequest(ngapEvent context.NgapEvt) {
 	case context.ErrNil:
 	default:
 		logger.NgapLog.Errorf("undefined event error string: %+s", errMsg.Error())
+		return
+	}
+
+	if cause == nil {
+		logger.NgapLog.Errorln("no cause specified for UE Context Release Request")
 		return
 	}
 
