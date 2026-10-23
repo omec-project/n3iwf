@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ishidawataru/sctp v0.0.0-20251114114122-19ddcbc6aae2
-	github.com/omec-project/ngap/v2 v2.1.9
+	github.com/omec-project/ngap/v2 v2.1.10
 	github.com/omec-project/util v1.9.2
 	github.com/urfave/cli/v3 v3.14.0
 	github.com/vishvananda/netlink v1.3.1
@@ -34,7 +34,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/omec-project/openapi/v2 v2.2.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.63.0 // indirect

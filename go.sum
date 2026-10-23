@@ -45,10 +45,8 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
-github.com/omec-project/ngap/v2 v2.1.9 h1:tdM1hGg3/Dk3/w/DoOHQiNuQVcTD5XV7CxdCHQmgeBU=
-github.com/omec-project/ngap/v2 v2.1.9/go.mod h1:HjDXoNHJSqX5R0Blxxk6K1fKm98uSzbV7+9ZukJgD98=
-github.com/omec-project/openapi/v2 v2.2.5 h1:G2mqm2W56+Gdgehu6L+fAmPMlVVqdvqnse4GutnIaEI=
-github.com/omec-project/openapi/v2 v2.2.5/go.mod h1:eCINoLdvAXP3BBFx93kOOfq0KHGqfMUshJzaYwNadPM=
+github.com/omec-project/ngap/v2 v2.1.10 h1:ZesJILfiCH2sQOOp7hADlaN1ph02A20DTjrh48+rKxk=
+github.com/omec-project/ngap/v2 v2.1.10/go.mod h1:NKTZ+pd3jIJQMxScrHRROCpZHoR1sPgzRAXRpyXI0Js=
 github.com/omec-project/util v1.9.2 h1:l/h58AkrUsot3Gkp/AynBH6d/SrMc7OGxvHj1bFD+bE=
 github.com/omec-project/util v1.9.2/go.mod h1:dqj9TrTvn1A1RH/Iw2nhOdBnuA1cAduuuzfmIjy5M1I=
 github.com/pascaldekloe/goe v0.1.1 h1:Ah6WQ56rZONR3RW3qWa2NCZ6JAVvSpUcoLBaOmYFt9Q=
