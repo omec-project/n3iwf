@@ -17,6 +17,8 @@ import (
 
 type XFRMEncryptionAlgorithmType uint16
 
+const espReplayWindow = 32
+
 func (xfrmEncryptionAlgorithmType XFRMEncryptionAlgorithmType) String() string {
 	switch xfrmEncryptionAlgorithmType {
 	case message.ENCR_DES:
@@ -69,16 +71,17 @@ func buildXfrmState(xfrmiId uint32, childSecurityAssociation *context.ChildSecur
 		}
 	}
 	return &netlink.XfrmState{
-		Src:   src,
-		Dst:   dst,
-		Proto: netlink.XFRM_PROTO_ESP,
-		Mode:  netlink.XFRM_MODE_TUNNEL,
-		Spi:   spi,
-		Ifid:  int(xfrmiId),
-		Auth:  xfrmIntegrityAlgorithm,
-		Crypt: xfrmEncryptionAlgorithm,
-		ESN:   childSecurityAssociation.EsnInfo.GetNeedESN(),
-		Encap: encap,
+		Src:          src,
+		Dst:          dst,
+		Proto:        netlink.XFRM_PROTO_ESP,
+		Mode:         netlink.XFRM_MODE_TUNNEL,
+		Spi:          spi,
+		Ifid:         int(xfrmiId),
+		Auth:         xfrmIntegrityAlgorithm,
+		Crypt:        xfrmEncryptionAlgorithm,
+		ESN:          childSecurityAssociation.EsnInfo.GetNeedESN(),
+		ReplayWindow: espReplayWindow,
+		Encap:        encap,
 	}
 }
 

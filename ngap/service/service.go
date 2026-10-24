@@ -39,12 +39,20 @@ func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	}
 
 	for _, remoteAddr := range n3iwfCtx.AmfSctpAddresses {
-		errChan := make(chan error)
+		errChan := make(chan error, 1) // buffered: Run may stop waiting on shutdown
 		wg.Add(1)
 		go listenAndServe(localAddr, remoteAddr, errChan, n3iwfCtx, wg)
-		if err, ok := <-errChan; ok {
-			logger.NgapLog.Errorln(err)
-			return errors.New("NGAP service run failed")
+		// Dialing and the NG Setup write cannot be interrupted, but waiting for them can: on
+		// shutdown Run gives up here, and the receiver closes its connection itself once
+		// Stop has run (see RegisterConn).
+		select {
+		case err, ok := <-errChan:
+			if ok {
+				logger.NgapLog.Errorln(err)
+				return errors.New("NGAP service run failed")
+			}
+		case <-n3iwfCtx.Ctx.Done():
+			return errors.New("NGAP service start cancelled")
 		}
 	}
 
@@ -59,8 +67,12 @@ func runNgapEventHandler(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 
 	defer func() {
 		logger.NgapLog.Infoln("NGAP server stopped")
-		close(ngapServer.RcvEventCh)
 		close(ngapServer.RcvNgapPktCh)
+		// RcvEventCh is deliberately not closed: the IKE event loop and the delivery
+		// goroutines behind NgapServer.QueueEvent keep sending to it after this loop has
+		// ended (for example when an AMF connection drops), and a send on a closed channel
+		// panics. Discard what arrives instead, so those producers neither panic nor block.
+		go discardEvents(ngapServer.RcvEventCh)
 		wg.Done()
 	}()
 
@@ -73,6 +85,18 @@ func runNgapEventHandler(ngapServer *context.NgapServer, wg *sync.WaitGroup) {
 			ngap.Dispatch(rcvPkt.Conn, rcvPkt.Buf)
 		case rcvEvt := <-ngapServer.RcvEventCh:
 			handleNgapEvent(rcvEvt)
+		}
+	}
+}
+
+// discardEvents consumes and drops events until the process exits
+func discardEvents(ch <-chan context.NgapEvt) {
+	for evt := range ch {
+		// Expiring a half-open RAN UE is local cleanup: the IKE side has already dropped the
+		// IKE SA, so nothing else will ever release the RAN UE, its AMF list entry or its
+		// TEIDs. Everything else needs the AMF connection and is dropped.
+		if evt != nil && evt.Type() == context.ExpireHalfOpenRanUe {
+			handleNgapEvent(evt)
 		}
 	}
 }
@@ -122,7 +146,12 @@ func listenAndServe(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error,
 			return
 		}
 		logger.NgapLog.Infoln("retry to connect AMF after 1 second")
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+		case <-n3iwfCtx.Ctx.Done():
+			handleConnError(nil, "shutdown while connecting to AMF", errors.New("cancelled"), errChan)
+			return
+		}
 	}
 
 	// Set default sender SCTP information sinfo_ppid = NGAP_PPID = 60
@@ -146,11 +175,18 @@ func listenAndServe(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error,
 		return
 	}
 
+	// Register before the NG Setup write and before reporting success: Stop closes registered
+	// connections, which is what unblocks a write to a stalled AMF, and a failure later in
+	// startup must find this connection. Registration is refused if Stop already ran.
+	if !n3iwfCtx.NgapServer.RegisterConn(conn) {
+		handleConnError(conn, "NGAP server is stopping", errors.New("stopped"), errChan)
+		return
+	}
+
 	// Send NG setup request
 	message.SendNGSetupRequest(conn, n3iwfCtx)
 	close(errChan)
 
-	n3iwfCtx.NgapServer.Conn = append(n3iwfCtx.NgapServer.Conn, conn)
 	data := make([]byte, context.MAX_BUF_MSG_LEN)
 
 	for {
@@ -185,8 +221,11 @@ func listenAndServe(localAddr, remoteAddr *sctp.SCTPAddr, errChan chan<- error,
 
 func Stop(n3iwfContext *context.N3IWFContext) {
 	logger.NgapLog.Infoln("close NGAP server")
+	if n3iwfContext.NgapServer == nil {
+		return // startup ended before the server was created
+	}
 
-	for _, ngapServerConn := range n3iwfContext.NgapServer.Conn {
+	for _, ngapServerConn := range n3iwfContext.NgapServer.StopConns() {
 		if err := ngapServerConn.Close(); err != nil {
 			logger.NgapLog.Errorf("stop ngap server error: %+v", err)
 		}

@@ -70,3 +70,8 @@ func (d *DH2048BitModp) GetPublicValue(secret *big.Int) []byte {
 	}
 	return pub
 }
+
+// ValidatePeerPublicValue checks the peer's public value
+func (d *DH2048BitModp) ValidatePeerPublicValue(peerPublicValue []byte) error {
+	return validatePublicValue(peerPublicValue, d.prime, d.primeBytesLength)
+}

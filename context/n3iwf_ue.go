@@ -43,8 +43,10 @@ func (ranUe *N3IWFRanUe) Remove() error {
 	n3iwfCtx.DeleteRanUe(ranUe.RanUeNgapId)
 
 	// Delete all PDU session TEIDs
-	for _, pduSession := range ranUe.PduSessionList {
-		n3iwfCtx.DeleteTEID(pduSession.GTPConnection.IncomingTEID)
+	for _, pduSession := range ranUe.PDUSessions() {
+		if pduSession.GTPConnection != nil {
+			n3iwfCtx.DeleteTEID(pduSession.GTPConnection.IncomingTEID)
+		}
 	}
 
 	// Close TCP connection if exists
@@ -62,7 +64,7 @@ func (n3iwfUe *N3IWFRanUe) DetachAMF() {
 	if n3iwfUe.AMF == nil {
 		return
 	}
-	delete(n3iwfUe.AMF.N3iwfRanUeList, n3iwfUe.RanUeNgapId)
+	n3iwfUe.AMF.DetachRanUe(n3iwfUe.RanUeNgapId)
 }
 
 // GetUserLocationInformation returns UE location info for NGAP

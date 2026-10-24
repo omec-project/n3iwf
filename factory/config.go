@@ -44,8 +44,12 @@ type Configuration struct {
 	N3iwfInfo            context.N3iwfNfInfo        `yaml:"n3iwfInformation"`
 	AmfSctpAddresses     []context.AmfSctpAddresses `yaml:"amfSctpAddresses"`
 	LivenessCheck        TimerValue                 `yaml:"livenessCheck"`
-	XfrmInterfaceId      uint32                     `yaml:"xfrmInterfaceId"`
-	TcpPort              uint16                     `yaml:"nasTcpPort"`
+	// HalfOpenIkeSaTimeout bounds how long an IKE SA may stay unauthenticated, i.e. the time
+	// allowed for IKE_SA_INIT through the 5G NAS registration to the final IKE_AUTH. Zero selects
+	// the default.
+	HalfOpenIkeSaTimeout time.Duration `yaml:"halfOpenIkeSaTimeout,omitempty"`
+	XfrmInterfaceId      uint32        `yaml:"xfrmInterfaceId"`
+	TcpPort              uint16        `yaml:"nasTcpPort"`
 }
 
 // TimerValue configures liveness check timers

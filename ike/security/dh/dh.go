@@ -5,6 +5,7 @@
 package dh
 
 import (
+	"errors"
 	"math/big"
 
 	"github.com/omec-project/n3iwf/ike/message"
@@ -88,4 +89,21 @@ type DHType interface {
 	getAttribute() (bool, uint16, uint16, []byte)
 	GetSharedKey(secret, peerPublicValue *big.Int) []byte
 	GetPublicValue(secret *big.Int) []byte
+	// ValidatePeerPublicValue checks the peer's public value as received on the wire
+	ValidatePeerPublicValue(peerPublicValue []byte) error
+}
+
+// validatePublicValue checks that the value is exactly as long as the prime (RFC 7296
+// section 3.4) and lies in the range 1 < y < p-1 (RFC 6989 section 2.1); 0, 1 and p-1 would
+// yield a predictable shared secret.
+func validatePublicValue(raw []byte, prime *big.Int, primeBytesLength int) error {
+	if len(raw) != primeBytesLength {
+		return errors.New("DH public value length does not match the group")
+	}
+	y := new(big.Int).SetBytes(raw)
+	pMinusOne := new(big.Int).Sub(prime, big.NewInt(1))
+	if y.Cmp(big.NewInt(1)) <= 0 || y.Cmp(pMinusOne) >= 0 {
+		return errors.New("DH public value out of range")
+	}
+	return nil
 }

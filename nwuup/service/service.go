@@ -28,6 +28,11 @@ func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	if err := newGtpuConn(n3iwfCtx); err != nil {
 		return err
 	}
+	// Startup is joined before teardown (see service.Start), so a shutdown requested meanwhile
+	// is only noticed here: do not start listeners on connections Stop is about to close.
+	if err := n3iwfCtx.Ctx.Err(); err != nil {
+		return fmt.Errorf("NWu user plane start cancelled: %w", err)
+	}
 	wg.Add(2)
 	go greListenAndServe(n3iwfCtx, wg)
 	go gtpuListenAndServe(n3iwfCtx, wg)
@@ -38,7 +43,7 @@ func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 func newGreConn(n3iwfCtx *context.N3IWFContext) error {
 	listenAddr := n3iwfCtx.IpSecGatewayAddress
 	var lc net.ListenConfig
-	conn, err := lc.ListenPacket(ctx.Background(), "ip4:gre", listenAddr)
+	conn, err := lc.ListenPacket(n3iwfCtx.Ctx, "ip4:gre", listenAddr)
 	if err != nil {
 		logger.NWuUPLog.Errorf("error setting GRE listen socket on %s: %+v", listenAddr, err)
 		return fmt.Errorf("error setting GRE listen socket on %s", listenAddr)
@@ -55,7 +60,7 @@ func newGreConn(n3iwfCtx *context.N3IWFContext) error {
 // newGtpuConn sets up a GTP-U connection and handler.
 func newGtpuConn(n3iwfCtx *context.N3IWFContext) error {
 	gtpuAddr := n3iwfCtx.GtpBindAddress + gtpv1.GTPUPort
-	laddr, err := net.ResolveUDPAddr("udp", gtpuAddr)
+	laddr, err := util.ResolveUDPAddrContext(n3iwfCtx.Ctx, gtpuAddr)
 	if err != nil {
 		return fmt.Errorf("resolve GTP-U address %s Failed", gtpuAddr)
 	}
@@ -110,10 +115,15 @@ func gtpuListenAndServe(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
 // Stop closes GRE and GTP-U connections.
 func Stop(n3iwfCtx *context.N3IWFContext) {
 	logger.NWuUPLog.Infoln("close Nwuup server")
-	if err := n3iwfCtx.GreConn.Close(); err != nil {
-		logger.NWuUPLog.Errorf("stop nwuup greConn error: %v", err)
+	// Either may be unset if startup failed or was cancelled before it got that far
+	if n3iwfCtx.GreConn != nil {
+		if err := n3iwfCtx.GreConn.Close(); err != nil {
+			logger.NWuUPLog.Errorf("stop nwuup greConn error: %v", err)
+		}
 	}
-	if err := n3iwfCtx.GtpuConn.Close(); err != nil {
-		logger.NWuUPLog.Errorf("stop nwuup gtpuConn error: %v", err)
+	if n3iwfCtx.GtpuConn != nil {
+		if err := n3iwfCtx.GtpuConn.Close(); err != nil {
+			logger.NWuUPLog.Errorf("stop nwuup gtpuConn error: %v", err)
+		}
 	}
 }

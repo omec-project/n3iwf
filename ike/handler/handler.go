@@ -52,11 +52,11 @@ func parseIKEPayloads(payloads []message.IKEPayload) map[message.IKEPayloadType]
 }
 
 // Helper for error response
-func sendErrorResponse(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, spiI, spiR uint64, msgType uint8, msgID uint32, notifyType uint16, key []byte) {
+func sendErrorResponse(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, spiI, spiR uint64, msgID uint32, notifyType uint16, key []byte) {
 	var payload message.IKEPayloadContainer
 	payload.Reset()
 	payload.BuildNotification(message.TypeNone, notifyType, nil, key)
-	msg := message.NewMessage(spiI, spiR, msgType, true, false, msgID, payload)
+	msg := message.NewMessage(spiI, spiR, message.IKE_SA_INIT, true, false, msgID, payload)
 	if err := SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, msg, nil); err != nil {
 		logger.IKELog.Errorf("sendErrorResponse: %v", err)
 	}
@@ -74,6 +74,12 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 		notifications = append(notifications, n.(*message.Notification))
 	}
 
+	if ikeMsg.Flags&message.ResponseBitCheck != 0 || ikeMsg.Flags&message.InitiatorBitCheck == 0 ||
+		ikeMsg.ResponderSPI != 0 || ikeMsg.MessageID != 0 {
+		logger.IKELog.Warnln("invalid IKE_SA_INIT header, dropping")
+		return
+	}
+
 	n3iwfCtx := context.N3IWFSelf()
 	var responseIKEPayload message.IKEPayloadContainer
 	var localNonce, concatenatedNonce []byte
@@ -83,7 +89,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 
 	if securityAssociation == nil {
 		logger.IKELog.Errorln("security association field is nil")
-		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
 		return
 	}
 	responseSecurityAssociation := responseIKEPayload.BuildSecurityAssociation()
@@ -92,7 +98,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 
 	if len(responseSecurityAssociation.Proposals) == 0 {
 		logger.IKELog.Warnln("no proposal chosen")
-		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, ikeMsg.MessageID, message.NO_PROPOSAL_CHOSEN, nil)
 		return
 	}
 
@@ -105,12 +111,28 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 		logger.IKELog.Warnln("Diffie-Hellman group mismatch")
 		notificationData := make([]byte, 2)
 		binary.BigEndian.PutUint16(notificationData, chosenDiffieHellmanGroup)
-		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, message.IKE_SA_INIT, ikeMsg.MessageID, message.INVALID_KE_PAYLOAD, notificationData)
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI, ikeMsg.MessageID, message.INVALID_KE_PAYLOAD, notificationData)
 		return
 	}
 
 	if nonce == nil {
 		logger.IKELog.Errorln("nonce field is nil")
+		return
+	}
+
+	halfOpen, fromSource := halfOpenIKESAStats(ueAddr.IP.String())
+	if halfOpen >= halfOpenIKESALimit {
+		logger.IKELog.Debugf("too many half-open IKE SAs (%d), dropping IKE_SA_INIT", halfOpen)
+		return
+	}
+	if fromSource >= halfOpenIKESAPerSourceLimit {
+		logger.IKELog.Debugf("too many half-open IKE SAs (%d) from %s, dropping IKE_SA_INIT", fromSource, ueAddr.IP)
+		return
+	}
+	if halfOpen >= halfOpenIKESACookieThreshold && !hasValidCookie(ikeMsg.Payloads, nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI) {
+		logger.IKELog.Debugf("%d half-open IKE SAs, requesting COOKIE", halfOpen)
+		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+			ikeMsg.MessageID, message.COOKIE, newCookie(nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI))
 		return
 	}
 
@@ -130,7 +152,19 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 	}
 
 	ikeSecurityAssociation := n3iwfCtx.NewIKESecurityAssociation()
+	if ikeSecurityAssociation == nil {
+		logger.IKELog.Errorln("handle IKE_SA_INIT: cannot allocate IKE SA")
+		return
+	}
+
+	established := false
+	defer func() {
+		if !established {
+			n3iwfCtx.DeleteIKESecurityAssociation(ikeSecurityAssociation.LocalSPI)
+		}
+	}()
 	ikeSecurityAssociation.RemoteSPI = ikeMsg.InitiatorSPI
+	ikeSecurityAssociation.RemoteIP = ueAddr.IP.String()
 	ikeSecurityAssociation.InitiatorMessageID = ikeMsg.MessageID
 
 	ikeSecurityAssociation.IKESAKey, localPublicValue, err = security.NewIKESAKey(chooseProposal[0], keyExcahge.KeyExchangeData, concatenatedNonce, ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI)
@@ -177,7 +211,9 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 	logger.IKELog.Debugf("local unsigned authentication data:\n%s", hex.Dump(ikeSecurityAssociation.ResponderSignedOctets))
 	if err = SendIKEMessageToUE(udpConn, n3iwfAddr, ueAddr, responseIKEMessage, nil); err != nil {
 		logger.IKELog.Errorf("HandleIKESAINIT(): %v", err)
+		return
 	}
+	established = true
 }
 
 // IKE_AUTH state
@@ -601,6 +637,7 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 				return
 			}
 			logger.IKELog.Debugln("peer authentication success")
+			n3iwfCtx.MarkIKESAAuthenticated(ikeSecurityAssociation.LocalSPI)
 		} else {
 			logger.IKELog.Warnln("peer authentication failed")
 			// Inform UE the authentication has failed
@@ -770,7 +807,9 @@ func HandleIKEAUTH(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr,
 		childSecurityAssociationContext.LocalIsInitiator = false
 		// Apply XFRM rules
 		// IPsec for CP always use default XFRM interface
-		if err = xfrm.ApplyXFRMRule(false, n3iwfCtx.XfrmInterfaceId, childSecurityAssociationContext); err != nil {
+		err = xfrm.ApplyXFRMRule(false, n3iwfCtx.XfrmInterfaceId, childSecurityAssociationContext)
+		ikeUE.PublishChildSA(childSecurityAssociationContext)
+		if err != nil {
 			logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 			return
 		}
@@ -984,7 +1023,9 @@ func continueCreateChildSA(ikeSecurityAssociation *context.IKESecurityAssociatio
 
 	// Apply XFRM rules
 	childSecurityAssociationContext.LocalIsInitiator = true
-	if err = xfrm.ApplyXFRMRule(true, newXfrmiId, childSecurityAssociationContext); err != nil {
+	err = xfrm.ApplyXFRMRule(true, newXfrmiId, childSecurityAssociationContext)
+	ikeUe.PublishChildSA(childSecurityAssociationContext)
+	if err != nil {
 		logger.IKELog.Errorf("applying XFRM rules failed: %+v", err)
 		return
 	}
@@ -1088,7 +1129,17 @@ func HandleUnmarshalEAP5GDataResponse(ikeEvt context.IkeEvt) {
 	n3iwfCtx := context.N3IWFSelf()
 	ikeSecurityAssociation, ok := n3iwfCtx.IKESALoad(localSPI)
 	if !ok {
-		logger.IKELog.Errorf("cannot get IKE SA from SPI: %016x", localSPI)
+		// The IKE SA expired, or was otherwise removed, before this response arrived.
+		// NGAP's HandleUnmarshalEAP5GData already allocated and registered the RAN UE
+		// for ranUeNgapId, so it must be released explicitly here or it would be
+		// orphaned: expirePendingIKESA cannot reach it again once the pending IKE SA
+		// entry is gone.
+		logger.IKELog.Warnf("IKE SA for SPI %016x is gone; releasing RanUe[%d]", localSPI, ranUeNgapId)
+		// Removing the RAN UE only clears the NgapId->SPI mapping. If the SA expired before
+		// NGAP recorded the mapping, the SPI->NgapId direction is still populated and would
+		// leak, so clear it here as well.
+		n3iwfCtx.DeleteIKEUe(localSPI)
+		n3iwfCtx.NgapServer.QueueEvent(context.NewExpireHalfOpenRanUeEvt(ranUeNgapId))
 		return
 	}
 
@@ -1100,7 +1151,8 @@ func HandleUnmarshalEAP5GDataResponse(ikeEvt context.IkeEvt) {
 	ikeUe.N3IWFIKESecurityAssociation = ikeSecurityAssociation
 	ikeUe.IKEConnection = ikeSecurityAssociation.IKEConnection
 
-	n3iwfCtx.IkeSpiNgapIdMapping(ikeUe.N3IWFIKESecurityAssociation.LocalSPI, ranUeNgapId)
+	// The SPI<->NgapId mapping was already recorded by NGAP's HandleUnmarshalEAP5GData
+	// when the RAN UE was created, so expiry can find it even before IkeUE is set above.
 
 	n3iwfCtx.NgapServer.RcvEventCh <- context.NewSendInitialUEMessageEvt(
 		ranUeNgapId,
@@ -1678,6 +1730,10 @@ func handleDeletePayload(payload *message.Delete, isResponse bool,
 
 	switch payload.ProtocolID {
 	case message.TypeIKE:
+		// A Delete from a peer whose AUTH was never verified must not leave its RAN UE waiting
+		// for an AMF that may never answer: removing the IkeUE below also drops the pending
+		// entry and the SPI mapping that expiry relies on, so release the RAN UE locally.
+		pending := n3iwfCtx.IsIKESAPending(n3iwfIke.N3IWFIKESecurityAssociation.LocalSPI)
 		if !isResponse {
 			err = n3iwfIke.Remove()
 			if err != nil {
@@ -1685,7 +1741,11 @@ func handleDeletePayload(payload *message.Delete, isResponse bool,
 			}
 		}
 
-		evt = context.NewSendUEContextReleaseEvt(ranNgapId)
+		if pending {
+			evt = context.NewExpireHalfOpenRanUeEvt(ranNgapId)
+		} else {
+			evt = context.NewSendUEContextReleaseEvt(ranNgapId)
+		}
 	case message.TypeESP:
 		var deletSPIs []uint32
 		var deletPduIds []int64
@@ -1944,7 +2004,7 @@ func deleteChildSAFromSPIList(ikeUe *context.N3IWFIkeUe, spiList []uint32) (
 
 	for _, spi := range spiList {
 		found := false
-		for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+		for _, childSA := range ikeUe.ChildSAList() {
 			if childSA.OutboundSPI == spi {
 				found = true
 				deleteSPIs = append(deleteSPIs, childSA.InboundSPI)

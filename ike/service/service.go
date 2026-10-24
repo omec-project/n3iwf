@@ -13,6 +13,7 @@ import (
 	"net"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/omec-project/n3iwf/context"
 	"github.com/omec-project/n3iwf/ike"
@@ -36,18 +37,17 @@ type EspHandler func(srcIP, dstIP *net.UDPAddr, espPkt []byte) error
 func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	ip := n3iwfCtx.IkeBindAddress
 	n3iwfCtx.IkeServer = &context.IkeServer{
-		Listener:    make(map[int]*net.UDPConn),
 		RcvIkePktCh: make(chan context.IkeReceivePacket, RECEIVE_IKEPACKET_CHANNEL_LEN),
 		RcvEventCh:  make(chan context.IkeEvt, RECEIVE_IKEEVENT_CHANNEL_LEN),
-		StopServer:  make(chan struct{}),
+		StopServer:  make(chan struct{}, 1),
 	}
 
-	ikeAddrPort, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, DEFAULT_IKE_PORT))
+	ikeAddrPort, err := util.ResolveUDPAddrContext(n3iwfCtx.Ctx, fmt.Sprintf("%s:%d", ip, DEFAULT_IKE_PORT))
 	if err != nil {
 		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
 		return fmt.Errorf("IKE service run failed")
 	}
-	nattAddrPort, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, DEFAULT_NATT_PORT))
+	nattAddrPort, err := util.ResolveUDPAddrContext(n3iwfCtx.Ctx, fmt.Sprintf("%s:%d", ip, DEFAULT_NATT_PORT))
 	if err != nil {
 		logger.IKELog.Errorf("resolve UDP address failed: %+v", err)
 		return fmt.Errorf("NAT-T service run failed")
@@ -82,13 +82,24 @@ func runIkeEventHandler(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
 	defer func() {
 		logger.IKELog.Infoln("IKE server stopped")
 		close(n3iwfCtx.IkeServer.RcvIkePktCh)
-		close(n3iwfCtx.IkeServer.RcvEventCh)
 		close(n3iwfCtx.IkeServer.StopServer)
+		// RcvEventCh is deliberately not closed: the NGAP event loop and the delivery
+		// goroutines behind IkeServer.QueueEvent may still send to it, and a send on a closed
+		// channel panics. Discard what arrives instead, so producers neither panic nor block.
+		go discardEvents(n3iwfCtx.IkeServer.RcvEventCh)
 		wg.Done()
 	}()
 
+	// Expire IKE SAs that never completed authentication even when no new IKE_SA_INIT
+	// arrives to trigger the check. The sweep runs here because the event loop is the only
+	// goroutine allowed to touch half-open IKE SA state.
+	sweep := time.NewTicker(handler.HalfOpenIKESASweepInterval)
+	defer sweep.Stop()
+
 	for {
 		select {
+		case <-sweep.C:
+			handler.ExpireHalfOpenIKESAs()
 		case rcvPkt := <-n3iwfCtx.IkeServer.RcvIkePktCh:
 			handleIkePacket(rcvPkt)
 		case rcvIkeEvent := <-n3iwfCtx.IkeServer.RcvEventCh:
@@ -96,6 +107,12 @@ func runIkeEventHandler(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) {
 		case <-n3iwfCtx.IkeServer.StopServer:
 			return
 		}
+	}
+}
+
+// discardEvents consumes and drops events until the process exits
+func discardEvents(ch <-chan context.IkeEvt) {
+	for range ch {
 	}
 }
 
@@ -134,9 +151,16 @@ func receiver(localAddr *net.UDPAddr, errChan chan<- error, n3iwfCtx *context.N3
 		errChan <- fmt.Errorf("listenAndServe failed")
 		return
 	}
+
+	// Register before reporting success: once Run has seen the success, a later failure
+	// triggers Stop, which must find this socket. Registration is refused if Stop already ran.
+	if !n3iwfCtx.IkeServer.RegisterListener(listener) {
+		_ = listener.Close()
+		errChan <- fmt.Errorf("IKE server is stopping")
+		return
+	}
 	close(errChan)
 
-	n3iwfCtx.IkeServer.Listener[localAddr.Port] = listener
 	data := make([]byte, context.MAX_BUF_MSG_LEN)
 
 	for {
@@ -208,12 +232,20 @@ func handleNattMsg(msgBuf []byte, rAddr, lAddr *net.UDPAddr, espHandler EspHandl
 // Stop closes all listeners and signals the server to stop
 func Stop(n3iwfCtx *context.N3IWFContext) {
 	logger.IKELog.Infoln("close IKE server")
-	for _, ikeServerListener := range n3iwfCtx.IkeServer.Listener {
+	if n3iwfCtx.IkeServer == nil {
+		return // startup ended before the server was created
+	}
+	for _, ikeServerListener := range n3iwfCtx.IkeServer.StopListeners() {
 		if err := ikeServerListener.Close(); err != nil {
 			logger.IKELog.Errorf("stop IKE server: %s error: %+v", ikeServerListener.LocalAddr().String(), err)
 		}
 	}
-	n3iwfCtx.IkeServer.StopServer <- struct{}{}
+
+	select {
+	case n3iwfCtx.IkeServer.StopServer <- struct{}{}:
+	default:
+		logger.IKELog.Warnln("IKE event loop stop already signalled")
+	}
 }
 
 // checkIKEMessage validates and parses IKE messages
@@ -224,7 +256,12 @@ func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *ne
 		return nil, nil, fmt.Errorf("IKE msg decode header: %w", err)
 	}
 
+	isResponse := ikeHeader.Flags&message.ResponseBitCheck != 0
+
 	if ikeHeader.MajorVersion > 2 {
+		if isResponse {
+			return nil, nil, fmt.Errorf("received an IKE response with higher major version (%d>2)", ikeHeader.MajorVersion)
+		}
 		payload := new(message.IKEPayloadContainer)
 		payload.BuildNotification(message.TypeNone, message.INVALID_MAJOR_VERSION, nil, nil)
 		responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,
@@ -251,6 +288,9 @@ func checkIKEMessage(msg []byte, udpConn *net.UDPConn, localAddr, remoteAddr *ne
 		var ok bool
 		ikeSA, ok = n3iwfCtx.IKESALoad(localSPI)
 		if !ok {
+			if isResponse {
+				return nil, nil, fmt.Errorf("received a response with an unrecognized SPI: %d", localSPI)
+			}
 			payload := new(message.IKEPayloadContainer)
 			payload.BuildNotification(message.TypeNone, message.INVALID_IKE_SPI, nil, nil)
 			responseIKEMessage := message.NewMessage(ikeHeader.InitiatorSPI, ikeHeader.ResponderSPI,

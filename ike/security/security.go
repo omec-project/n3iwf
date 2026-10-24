@@ -164,6 +164,12 @@ func CalculateDiffieHellmanMaterials(
 	ikesaKey *IKESAKey,
 	peerPublicValue []byte,
 ) ([]byte, []byte, error) {
+	if ikesaKey.DhInfo == nil {
+		return nil, nil, fmt.Errorf("CalculateDiffieHellmanMaterials(): no Diffie-Hellman group specified")
+	}
+	if err := ikesaKey.DhInfo.ValidatePeerPublicValue(peerPublicValue); err != nil {
+		return nil, nil, fmt.Errorf("CalculateDiffieHellmanMaterials(): %w", err)
+	}
 	secret, err := GenerateRandomNumber()
 	if err != nil {
 		return nil, nil, fmt.Errorf("CalculateDiffieHellmanMaterials(): %w", err)
