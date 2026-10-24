@@ -8,6 +8,7 @@ package context
 import (
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/omec-project/ngap/v2/ngapType"
 )
@@ -48,6 +49,7 @@ type RanUe interface {
 // RanUeSharedCtx holds shared context for a UE
 
 type RanUeSharedCtx struct {
+	pduSessionMu                     sync.RWMutex
 	PduSessionList                   map[int64]*PDUSession
 	RadioCapability                  *ngapType.UERadioCapability
 	CoreNetworkAssistanceInformation *ngapType.CoreNetworkAssistanceInformationForInactive
@@ -135,6 +137,8 @@ func (ranUe *RanUeSharedCtx) GetSharedCtx() *RanUeSharedCtx {
 
 // FindPDUSession returns the PDU session for the given ID, or nil if not found
 func (ranUe *RanUeSharedCtx) FindPDUSession(pduSessionID int64) *PDUSession {
+	ranUe.pduSessionMu.RLock()
+	defer ranUe.pduSessionMu.RUnlock()
 	if pduSession, ok := ranUe.PduSessionList[pduSessionID]; ok {
 		return pduSession
 	}
@@ -143,6 +147,8 @@ func (ranUe *RanUeSharedCtx) FindPDUSession(pduSessionID int64) *PDUSession {
 
 // CreatePDUSession creates a new PDU session if it does not exist
 func (ranUe *RanUeSharedCtx) CreatePDUSession(pduSessionID int64, snssai ngapType.SNSSAI) (*PDUSession, error) {
+	ranUe.pduSessionMu.Lock()
+	defer ranUe.pduSessionMu.Unlock()
 	if _, exists := ranUe.PduSessionList[pduSessionID]; exists {
 		return nil, fmt.Errorf("PDU Session[ID:%d] already exists", pduSessionID)
 	}
@@ -153,5 +159,25 @@ func (ranUe *RanUeSharedCtx) CreatePDUSession(pduSessionID int64, snssai ngapTyp
 
 // DeletePDUSession removes the PDU session for the given ID
 func (ranUe *RanUeSharedCtx) DeletePDUSession(pduSessionId int64) {
+	ranUe.pduSessionMu.Lock()
+	defer ranUe.pduSessionMu.Unlock()
 	delete(ranUe.PduSessionList, pduSessionId)
+}
+
+// PDUSessionCount returns the number of PDU sessions of the UE
+func (ranUe *RanUeSharedCtx) PDUSessionCount() int {
+	ranUe.pduSessionMu.RLock()
+	defer ranUe.pduSessionMu.RUnlock()
+	return len(ranUe.PduSessionList)
+}
+
+// PDUSessions returns a snapshot of the UE's PDU sessions
+func (ranUe *RanUeSharedCtx) PDUSessions() []*PDUSession {
+	ranUe.pduSessionMu.RLock()
+	defer ranUe.pduSessionMu.RUnlock()
+	sessions := make([]*PDUSession, 0, len(ranUe.PduSessionList))
+	for _, pduSession := range ranUe.PduSessionList {
+		sessions = append(sessions, pduSession)
+	}
+	return sessions
 }

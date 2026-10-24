@@ -40,6 +40,5 @@ func action(ctx context.Context, c *cli.Command) error {
 		return fmt.Errorf("failed to initialize N3IWF: %w", err)
 	}
 
-	N3IWF.Start()
-	return nil
+	return N3IWF.Start()
 }

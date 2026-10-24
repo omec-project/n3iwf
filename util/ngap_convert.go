@@ -19,6 +19,10 @@ import (
 func PlmnIdToNgap(plmnId context.PlmnId) (ngapPlmnId ngapType.PLMNIdentity) {
 	mcc := plmnId.Mcc
 	mnc := plmnId.Mnc
+	if len(mcc) != 3 || (len(mnc) != 2 && len(mnc) != 3) {
+		logger.UtilLog.Errorf("invalid PLMN ID: mcc %q, mnc %q", mcc, mnc)
+		return
+	}
 	var hexString string
 	if len(mnc) == 2 {
 		// 2-digit MNC: use 'f' as filler

@@ -14,7 +14,28 @@ import (
 type NgapServer struct {
 	RcvNgapPktCh chan NgapReceivePacket
 	RcvEventCh   chan NgapEvt
-	Conn         []*sctp.SCTPConn
+
+	asyncEvents asyncSender[NgapEvt]
+	conns       socketRegistry[*sctp.SCTPConn]
+}
+
+// RegisterConn records an open AMF connection so that StopConns closes it. It returns false
+// if the server is already stopping, in which case the caller must close the connection itself.
+func (s *NgapServer) RegisterConn(conn *sctp.SCTPConn) bool {
+	return s.conns.add(conn)
+}
+
+// StopConns returns the registered connections for the caller to close, and makes later
+// RegisterConn calls fail.
+func (s *NgapServer) StopConns() []*sctp.SCTPConn {
+	return s.conns.shutdown()
+}
+
+// QueueEvent hands evt to the NGAP event loop without ever blocking the caller. Use it from
+// the IKE event loop, so the two loops cannot deadlock on each other's full channels. Events
+// queued this way are delivered in order and are never dropped.
+func (s *NgapServer) QueueEvent(evt NgapEvt) {
+	s.asyncEvents.send(s.RcvEventCh, evt)
 }
 
 // NgapReceivePacket represents a received NGAP packet
@@ -41,6 +62,7 @@ const (
 	SendPDUSessionResourceReleaseResponse
 	SendUplinkNASTransport
 	SendInitialContextSetupResponse
+	ExpireHalfOpenRanUe
 )
 
 // EvtError represents NGAP event errors
@@ -144,6 +166,21 @@ func (e *SendUEContextReleaseRequestEvt) Type() NgapEventType { return SendUECon
 
 func NewSendUEContextReleaseRequestEvt(ranUeNgapId int64, errMsg EvtError) *SendUEContextReleaseRequestEvt {
 	return &SendUEContextReleaseRequestEvt{RanUeNgapId: ranUeNgapId, ErrMsg: errMsg}
+}
+
+// ExpireHalfOpenRanUeEvt event signals that the RAN UE allocated for an IKE SA must be
+// released because that SA timed out, or was removed, before completing authentication.
+// Unlike SendUEContextReleaseRequestEvt, the handler removes the RAN UE locally on a
+// best-effort basis rather than waiting for the AMF's response, since the response may
+// never arrive for a peer that never authenticated.
+type ExpireHalfOpenRanUeEvt struct {
+	RanUeNgapId int64
+}
+
+func (e *ExpireHalfOpenRanUeEvt) Type() NgapEventType { return ExpireHalfOpenRanUe }
+
+func NewExpireHalfOpenRanUeEvt(ranUeNgapId int64) *ExpireHalfOpenRanUeEvt {
+	return &ExpireHalfOpenRanUeEvt{RanUeNgapId: ranUeNgapId}
 }
 
 // SendUEContextReleaseCompleteEvt event

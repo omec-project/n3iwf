@@ -43,6 +43,11 @@ func DecodeDecrypt(msg []byte, ikeHeader *message.IKEHeader, ikesaKey *security.
 		return nil, fmt.Errorf("DecodeDecrypt(): %w", err)
 	}
 
+	if ikeMsg.ExchangeType != message.IKE_SA_INIT &&
+		(len(ikeMsg.Payloads) == 0 || ikeMsg.Payloads[0].Type() != message.TypeSK) {
+		return nil, errors.New("IKE decode decrypt: unprotected message outside IKE_SA_INIT")
+	}
+
 	if len(ikeMsg.Payloads) > 0 && ikeMsg.Payloads[0].Type() == message.TypeSK {
 		if ikesaKey == nil {
 			return nil, errors.New("IKE decode decrypt: need ikesaKey to decrypt")

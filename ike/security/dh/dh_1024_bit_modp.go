@@ -64,3 +64,8 @@ func (d *Dh1024BitModp) GetPublicValue(secret *big.Int) []byte {
 	publicValue = append(prependZero, publicValue...)
 	return publicValue
 }
+
+// ValidatePeerPublicValue checks the peer's public value
+func (d *Dh1024BitModp) ValidatePeerPublicValue(peerPublicValue []byte) error {
+	return validatePublicValue(peerPublicValue, d.prime, d.primeBytesLength)
+}

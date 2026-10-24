@@ -7,9 +7,12 @@ package context
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/ishidawataru/sctp"
+	"github.com/omec-project/n3iwf/logger"
 	"github.com/omec-project/ngap/v2/aper"
 	"github.com/omec-project/ngap/v2/ngapConvert"
 	"github.com/omec-project/ngap/v2/ngapType"
@@ -25,8 +28,41 @@ type N3IWFAMF struct {
 	PLMNSupportList       *ngapType.PLMNSupportList
 	AMFTNLAssociationList map[string]*AMFTNLAssociationItem
 	AMFOverloadContent    *AMFOverloadContent
+	ueListMu              sync.RWMutex // guards N3iwfRanUeList
 	N3iwfRanUeList        map[int64]RanUe
 	SCTPAddr              string
+	sendOnce              sync.Once
+	sendQ                 chan []byte
+}
+
+// amfSendQueueLen bounds the packets waiting for QueueSend's writer
+const amfSendQueueLen = 128
+
+// QueueSend writes pkt to the AMF from a writer goroutine of its own, so that a caller in an
+// event loop never blocks on a stalled SCTP socket (writes have no deadline). One goroutine
+// and at most amfSendQueueLen packets exist per AMF; beyond that pkt is dropped and QueueSend
+// returns false. The writer stops at the first write error, for instance once the connection
+// is closed, and later packets are dropped. Use it only for best-effort notifications that
+// need not be ordered with synchronous sends.
+func (amf *N3IWFAMF) QueueSend(pkt []byte) bool {
+	amf.sendOnce.Do(func() {
+		amf.sendQ = make(chan []byte, amfSendQueueLen)
+		go func() {
+			for p := range amf.sendQ {
+				if _, err := amf.SCTPConn.Write(p); err != nil {
+					logger.NgapLog.Errorf("write to SCTP socket failed, stopping AMF[%s] writer: %+v", amf.SCTPAddr, err)
+					return
+				}
+			}
+		}()
+	})
+	select {
+	case amf.sendQ <- pkt:
+		return true
+	default:
+		logger.NgapLog.Warnf("AMF[%s] send queue full, dropping packet", amf.SCTPAddr)
+		return false
+	}
 }
 
 // AMFTNLAssociationItem holds TNL association info
@@ -59,8 +95,41 @@ func (amf *N3IWFAMF) init(sctpAddr string, conn *sctp.SCTPConn) {
 	amf.N3iwfRanUeList = make(map[int64]RanUe)
 }
 
-// FindUeByAmfUeNgapID returns RanUe by AmfUeNgapId
+// AttachRanUe registers a RAN UE as served through this AMF
+func (amf *N3IWFAMF) AttachRanUe(ranUe RanUe) {
+	amf.ueListMu.Lock()
+	defer amf.ueListMu.Unlock()
+	amf.N3iwfRanUeList[ranUe.GetSharedCtx().RanUeNgapId] = ranUe
+}
+
+// DetachRanUe removes a RAN UE from this AMF
+func (amf *N3IWFAMF) DetachRanUe(ranUeNgapId int64) {
+	amf.ueListMu.Lock()
+	defer amf.ueListMu.Unlock()
+	delete(amf.N3iwfRanUeList, ranUeNgapId)
+}
+
+// RelatedUes returns a snapshot of the UEs served through this AMF
+func (amf *N3IWFAMF) RelatedUes() []RanUe {
+	amf.ueListMu.RLock()
+	defer amf.ueListMu.RUnlock()
+	ues := make([]RanUe, 0, len(amf.N3iwfRanUeList))
+	for _, ranUe := range amf.N3iwfRanUeList {
+		ues = append(ues, ranUe)
+	}
+	return ues
+}
+
+// FindUeByAmfUeNgapID returns RanUe by AmfUeNgapId. UEs that have not been assigned an ID yet
+// never match.
 func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) RanUe {
+	if id == AmfUeNgapIdUnspecified {
+		return nil
+	}
+	// Searched in place under the read lock: a snapshot per lookup would make bulk releases
+	// by AMF UE NGAP ID quadratic in allocations.
+	amf.ueListMu.RLock()
+	defer amf.ueListMu.RUnlock()
 	for _, ranUe := range amf.N3iwfRanUeList {
 		if ranUe.GetSharedCtx().AmfUeNgapId == id {
 			return ranUe
@@ -70,14 +139,16 @@ func (amf *N3IWFAMF) FindUeByAmfUeNgapID(id int64) RanUe {
 }
 
 // RemoveAllRelatedUe removes all UEs related to this AMF
+// A failure to remove one UE does not stop the removal of the others.
 func (amf *N3IWFAMF) RemoveAllRelatedUe() error {
-	for id, ranUe := range amf.N3iwfRanUeList {
+	var errs []error
+	for _, ranUe := range amf.RelatedUes() {
 		if err := ranUe.Remove(); err != nil {
-			return fmt.Errorf("RemoveAllRelatedUe error: %+v", err)
+			errs = append(errs, fmt.Errorf("remove RAN UE %d: %w", ranUe.GetSharedCtx().RanUeNgapId, err))
 		}
-		delete(amf.N3iwfRanUeList, id)
+		amf.DetachRanUe(ranUe.GetSharedCtx().RanUeNgapId)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // tnlAssocKey generates a unique key for TNL association map

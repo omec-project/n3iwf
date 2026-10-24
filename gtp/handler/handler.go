@@ -52,17 +52,19 @@ func forwardDL(n3iwfCtx *context.N3IWFContext, packet gtpMsg.QoSTPDUPacket) {
 	var cm *ipv4.ControlMessage
 
 	// Find matching ChildSA for TEID
-	for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+	ikeUe.RangeChildSA(func(childSA *context.ChildSecurityAssociation) bool {
 		if len(childSA.PDUSessionIds) == 0 {
-			continue
+			return true
 		}
 		pduSession := ranUe.FindPDUSession(childSA.PDUSessionIds[0])
-		if pduSession != nil && pduSession.GTPConnection.IncomingTEID == pktTEID {
+		if pduSession != nil && pduSession.GTPConnection != nil && pduSession.GTPConnection.IncomingTEID == pktTEID &&
+			childSA.XfrmIface != nil {
 			cm = &ipv4.ControlMessage{IfIndex: childSA.XfrmIface.Attrs().Index}
 			logger.GTPLog.Debugf("forwarding IPSec xfrm interfaceid: %d", childSA.XfrmIface.Attrs().Index)
-			break
+			return false
 		}
-	}
+		return true
+	})
 	if cm == nil {
 		logger.GTPLog.Warnf("cannot match TEID(%d) to ChildSA", pktTEID)
 		return
@@ -106,12 +108,13 @@ func ForwardUL(n3iwfCtx *context.N3IWFContext, ueInnerIP string, ifIndex int, ra
 	}
 
 	var pduSession *context.PDUSession
-	for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+	ikeUe.RangeChildSA(func(childSA *context.ChildSecurityAssociation) bool {
 		if childSA.XfrmIface != nil && childSA.XfrmIface.Attrs().Index == ifIndex && len(childSA.PDUSessionIds) > 0 {
-			pduSession = ranUe.GetSharedCtx().PduSessionList[childSA.PDUSessionIds[0]]
-			break
+			pduSession = ranUe.FindPDUSession(childSA.PDUSessionIds[0])
+			return false
 		}
-	}
+		return true
+	})
 	if pduSession == nil {
 		logger.NWuUPLog.Errorln("this UE does not have any available PDU session")
 		return

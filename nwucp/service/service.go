@@ -7,7 +7,6 @@ package service
 
 import (
 	"bufio"
-	ctx "context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -27,7 +26,7 @@ var tcpListener net.Listener
 func Run(n3iwfCtx *context.N3IWFContext, wg *sync.WaitGroup) error {
 	nasTcpAddress := fmt.Sprintf("%s:%d", n3iwfCtx.IpSecGatewayAddress, n3iwfCtx.TcpPort)
 	var lc net.ListenConfig
-	listener, err := lc.Listen(ctx.Background(), "tcp", nasTcpAddress)
+	listener, err := lc.Listen(n3iwfCtx.Ctx, "tcp", nasTcpAddress)
 	if err != nil {
 		logger.NWuCPLog.Errorf("failed to listen on TCP address: %+v", err)
 		return err
@@ -99,8 +98,11 @@ func listenAndServe(wg *sync.WaitGroup) {
 func Stop(n3iwfCtx *context.N3IWFContext) {
 	logger.NWuCPLog.Infoln("closing NWuCP server")
 
-	if err := tcpListener.Close(); err != nil {
-		logger.NWuCPLog.Errorf("error stopping NWuCP server: %+v", err)
+	// Unset if startup failed or was cancelled before the listener was created
+	if tcpListener != nil {
+		if err := tcpListener.Close(); err != nil {
+			logger.NWuCPLog.Errorf("error stopping NWuCP server: %+v", err)
+		}
 	}
 
 	n3iwfCtx.RanUePool.Range(

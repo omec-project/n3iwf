@@ -89,7 +89,7 @@ func SendChildSADeleteRequest(ikeUe *context.N3IWFIkeUe, releaseList []int64) {
 	var deleteSPIs []uint32
 	spiLen := uint16(0)
 	for _, releaseID := range releaseList {
-		for _, childSA := range ikeUe.N3IWFChildSecurityAssociation {
+		for _, childSA := range ikeUe.ChildSAList() {
 			if len(childSA.PDUSessionIds) == 0 || childSA.PDUSessionIds[0] != releaseID {
 				continue
 			}

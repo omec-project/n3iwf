@@ -266,6 +266,7 @@ func BuildInitialContextSetupResponse(
 		ie = ngapType.InitialContextSetupResponseIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.InitialContextSetupResponseIEsPresentCriticalityDiagnostics
 		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
 		initialContextSetupResponseIEs.List = append(initialContextSetupResponseIEs.List, ie)
 	}
@@ -342,6 +343,7 @@ func BuildInitialContextSetupFailure(
 		ie = ngapType.InitialContextSetupFailureIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.InitialContextSetupFailureIEsPresentCriticalityDiagnostics
 		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
 		initialContextSetupFailureIEs.List = append(initialContextSetupFailureIEs.List, ie)
 	}
@@ -393,11 +395,14 @@ func BuildUEContextModificationResponse(
 	uEContextModificationResponseIEs.List = append(uEContextModificationResponseIEs.List, ie)
 
 	// Criticality Diagnostics (optional)
-	ie = ngapType.UEContextModificationResponseIEs{}
-	ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
-	ie.Criticality.Value = ngapType.CriticalityPresentIgnore
-	ie.Value.CriticalityDiagnostics = criticalityDiagnostics
-	uEContextModificationResponseIEs.List = append(uEContextModificationResponseIEs.List, ie)
+	if criticalityDiagnostics != nil {
+		ie = ngapType.UEContextModificationResponseIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
+		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.UEContextModificationResponseIEsPresentCriticalityDiagnostics
+		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
+		uEContextModificationResponseIEs.List = append(uEContextModificationResponseIEs.List, ie)
+	}
 
 	return ngap.Encoder(pdu)
 }
@@ -454,8 +459,10 @@ func BuildUEContextReleaseComplete(ranUe context.RanUe,
 
 	uEContextReleaseCompleteIEs.List = append(uEContextReleaseCompleteIEs.List, ie)
 
-	// PDU Session Resource List (Optional)
-	if len(ranUeCtx.PduSessionList) > 0 {
+	// PDU Session Resource List (Optional). One snapshot serves both the emptiness check and the
+	// items, so a concurrent change cannot leave an empty list, which the IE does not allow.
+	pduSessions := ranUeCtx.PDUSessions()
+	if len(pduSessions) > 0 {
 		ie = ngapType.UEContextReleaseCompleteIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceListCxtRelCpl
 		ie.Criticality.Value = ngapType.CriticalityPresentReject
@@ -465,7 +472,7 @@ func BuildUEContextReleaseComplete(ranUe context.RanUe,
 		pDUSessionResourceListCxtRelCpl := ie.Value.PDUSessionResourceListCxtRelCpl
 
 		// PDU Session Resource Item (in PDU Session Resource List)
-		for _, pduSession := range ranUeCtx.PduSessionList {
+		for _, pduSession := range pduSessions {
 			pDUSessionResourceItemCxtRelCpl := ngapType.PDUSessionResourceItemCxtRelCpl{}
 			pDUSessionResourceItemCxtRelCpl.PDUSessionID.Value = pduSession.Id
 			pDUSessionResourceListCxtRelCpl.List = append(pDUSessionResourceListCxtRelCpl.List, pDUSessionResourceItemCxtRelCpl)
@@ -479,6 +486,7 @@ func BuildUEContextReleaseComplete(ranUe context.RanUe,
 		ie = ngapType.UEContextReleaseCompleteIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.UEContextReleaseCompleteIEsPresentCriticalityDiagnostics
 		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
 		uEContextReleaseCompleteIEs.List = append(uEContextReleaseCompleteIEs.List, ie)
 	}
@@ -527,8 +535,9 @@ func BuildUEContextReleaseRequest(ranUe context.RanUe, cause ngapType.Cause) ([]
 
 	uEContextReleaseRequestIEs.List = append(uEContextReleaseRequestIEs.List, ie)
 
-	// PDU Session Resource List
-	if len(ranUeCtx.PduSessionList) > 0 {
+	// PDU Session Resource List (single snapshot, see BuildUEContextReleaseComplete)
+	pduSessions := ranUeCtx.PDUSessions()
+	if len(pduSessions) > 0 {
 		ie = ngapType.UEContextReleaseRequestIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceListCxtRelReq
 		ie.Criticality.Value = ngapType.CriticalityPresentReject
@@ -538,7 +547,7 @@ func BuildUEContextReleaseRequest(ranUe context.RanUe, cause ngapType.Cause) ([]
 		pDUSessionResourceListCxtRelReq := ie.Value.PDUSessionResourceListCxtRelReq
 
 		// PDU Session Resource Item in PDU session Resource List
-		for _, pduSession := range ranUeCtx.PduSessionList {
+		for _, pduSession := range pduSessions {
 			pDUSessionResourceItem := ngapType.PDUSessionResourceItemCxtRelReq{}
 			pDUSessionResourceItem.PDUSessionID.Value = pduSession.Id
 			pDUSessionResourceListCxtRelReq.List = append(pDUSessionResourceListCxtRelReq.List, pDUSessionResourceItem)
@@ -839,6 +848,7 @@ func BuildPDUSessionResourceSetupResponse(
 		ie = ngapType.PDUSessionResourceSetupResponseIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.PDUSessionResourceSetupResponseIEsPresentCriticalityDiagnostics
 		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
 		pduSessionResourceSetupResponseIEs.List = append(pduSessionResourceSetupResponseIEs.List, ie)
 	}
@@ -922,6 +932,7 @@ func BuildPDUSessionResourceModifyResponse(
 		ie = ngapType.PDUSessionResourceModifyResponseIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCriticalityDiagnostics
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+		ie.Value.Present = ngapType.PDUSessionResourceModifyResponseIEsPresentCriticalityDiagnostics
 		ie.Value.CriticalityDiagnostics = criticalityDiagnostics
 		pduSessionResourceModifyResponseIEs.List = append(pduSessionResourceModifyResponseIEs.List, ie)
 	}

@@ -11,10 +11,31 @@ import (
 
 // IkeServer manages IKE UDP listeners and event channels
 type IkeServer struct {
-	Listener    map[int]*net.UDPConn
 	RcvIkePktCh chan IkeReceivePacket
 	RcvEventCh  chan IkeEvt
 	StopServer  chan struct{}
+
+	asyncEvents asyncSender[IkeEvt]
+	listeners   socketRegistry[*net.UDPConn]
+}
+
+// RegisterListener records an open listener so that StopListeners closes it. It returns false
+// if the server is already stopping, in which case the caller must close the listener itself.
+func (s *IkeServer) RegisterListener(l *net.UDPConn) bool {
+	return s.listeners.add(l)
+}
+
+// StopListeners returns the registered listeners for the caller to close, and makes later
+// RegisterListener calls fail.
+func (s *IkeServer) StopListeners() []*net.UDPConn {
+	return s.listeners.shutdown()
+}
+
+// QueueEvent hands evt to the IKE event loop without ever blocking the caller. Use it from
+// the NGAP event loop, so the two loops cannot deadlock on each other's full channels.
+// Events queued this way are delivered in order and are never dropped.
+func (s *IkeServer) QueueEvent(evt IkeEvt) {
+	s.asyncEvents.send(s.RcvEventCh, evt)
 }
 
 // IkeReceivePacket represents a received IKE packet

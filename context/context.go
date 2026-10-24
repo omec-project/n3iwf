@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/ishidawataru/sctp"
 	"github.com/omec-project/n3iwf/logger"
@@ -50,6 +51,7 @@ type N3IWFContext struct {
 	GtpConnectionUPF       sync.Map
 	ChildSA                sync.Map
 	IkeSA                  sync.Map
+	PendingIkeSA           sync.Map
 	AmfReInitAvailableList sync.Map
 	AmfPool                sync.Map
 	IpSecGatewayAddress    string
@@ -57,12 +59,15 @@ type N3IWFContext struct {
 	XfrmParentIfaceName    string
 	Fqdn                   string
 	IkeBindAddress         string
+	HalfOpenIKESATimeout   time.Duration // zero selects the IKE handler default
 	GtpBindAddress         string
 	NfInfo                 N3iwfNfInfo
 	CertificateAuthority   []byte
 	N3iwfCertificate       []byte
 	AmfSctpAddresses       []*sctp.SCTPAddr
 	Wg                     sync.WaitGroup
+	releasedRanUeMu        sync.Mutex // guards releasedRanUe
+	releasedRanUe          map[int64]releasedRanUe
 	XfrmInterfaceId        uint32
 	XfrmIfaceIdOffsetForUP uint32
 	TcpPort                uint16
@@ -260,9 +265,10 @@ func (n3iwfCtx *N3IWFContext) AMFReInitAvailableListStore(sctpAddr string, flag 
 	n3iwfCtx.AmfReInitAvailableList.Store(sctpAddr, flag)
 }
 
-// NewIKESecurityAssociation creates and stores a new IKE Security Association with a unique SPI
+// NewIKESecurityAssociation creates and stores a new IKE Security Association with a unique SPI.
+// The SA starts out pending (unauthenticated); see HalfOpenIKESACount and MarkIKESAAuthenticated.
 func (n3iwfCtx *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociation {
-	ikeSecurityAssociation := new(IKESecurityAssociation)
+	ikeSecurityAssociation := &IKESecurityAssociation{CreatedAt: time.Now()}
 	maxSPI := new(big.Int).SetUint64(math.MaxUint64)
 	for {
 		localSPI, err := rand.Int(rand.Reader, maxSPI)
@@ -273,15 +279,79 @@ func (n3iwfCtx *N3IWFContext) NewIKESecurityAssociation() *IKESecurityAssociatio
 		localSPIuint64 := localSPI.Uint64()
 		if _, duplicate := n3iwfCtx.IkeSA.LoadOrStore(localSPIuint64, ikeSecurityAssociation); !duplicate {
 			ikeSecurityAssociation.LocalSPI = localSPIuint64
+			n3iwfCtx.PendingIkeSA.Store(localSPIuint64, ikeSecurityAssociation)
 			break
 		}
 	}
 	return ikeSecurityAssociation
 }
 
+// MarkIKESAAuthenticated records that spi completed peer AUTH verification in IKE_AUTH,
+// excluding it from the half-open admission count and expiry even if an EAP-5G exchange
+// already attached a UE to it. It must be called from the IKE event loop.
+func (n3iwfCtx *N3IWFContext) MarkIKESAAuthenticated(spi uint64) {
+	n3iwfCtx.PendingIkeSA.Delete(spi)
+}
+
+// IsIKESAPending reports whether the IKE SA for spi has not yet had its peer AUTH verified
+func (n3iwfCtx *N3IWFContext) IsIKESAPending(spi uint64) bool {
+	_, pending := n3iwfCtx.PendingIkeSA.Load(spi)
+	return pending
+}
+
+// HalfOpenIKESACount removes pending IKE SAs that timed out and returns the number of pending
+// IKE SAs that remain, in total and the share whose IKE_SA_INIT came from remoteIP with a valid
+// COOKIE (an unverified source address may be spoofed, so it is not counted against remoteIP;
+// an empty remoteIP matches none). A pending SA times out after maxAge, or after preAuthMaxAge while it has not
+// started IKE_AUTH (State is still zero). An IKE SA is pending from creation until peer AUTH is
+// verified (MarkIKESAAuthenticated), regardless of whether an EAP-5G exchange has already
+// attached a UE to it; a timed-out SA with an attached UE has that UE released too, so it
+// cannot linger outside NGAP's accounting. Ranging over the pending-only registry, rather
+// than every established session, bounds the work done per IKE_SA_INIT. It must be called
+// from the IKE event loop, which is the only goroutine that writes IkeUE and State.
+func (n3iwfCtx *N3IWFContext) HalfOpenIKESACount(
+	maxAge, preAuthMaxAge time.Duration, remoteIP string,
+) (total, fromRemote int) {
+	now := time.Now()
+	n3iwfCtx.PendingIkeSA.Range(func(key, value any) bool {
+		spi := key.(uint64)
+		sa := value.(*IKESecurityAssociation)
+		age := now.Sub(sa.CreatedAt)
+		if age > maxAge || (sa.State == 0 && age > preAuthMaxAge) {
+			n3iwfCtx.expirePendingIKESA(spi)
+			return true
+		}
+		total++
+		if remoteIP != "" && sa.CookieVerified && sa.RemoteIP == remoteIP {
+			fromRemote++
+		}
+		return true
+	})
+	return total, fromRemote
+}
+
+// expirePendingIKESA removes a timed-out, never-authenticated IKE SA. An EAP-5G exchange
+// may have already allocated a RAN UE for spi before sa.IkeUE is ever set (NGAP's
+// HandleUnmarshalEAP5GData records the SPI<->NgapId mapping as soon as it creates the RAN
+// UE, ahead of attaching IkeUE), so the mapping rather than sa.IkeUE is used to find it.
+// The hand-off to the NGAP event loop is queued (NgapServer.QueueEvent) so this call, made
+// from the IKE event loop, never blocks on NgapServer.RcvEventCh; NGAP handlers that send
+// events back to IKE (e.g. NG Reset) could otherwise deadlock against a bulk expiry that
+// fills both event channels.
+func (n3iwfCtx *N3IWFContext) expirePendingIKESA(spi uint64) {
+	n3iwfCtx.DeleteIKESecurityAssociation(spi)
+	ranNgapId, ok := n3iwfCtx.NgapIdLoad(spi)
+	n3iwfCtx.DeleteIKEUe(spi)
+	if !ok || n3iwfCtx.NgapServer == nil {
+		return
+	}
+	n3iwfCtx.NgapServer.QueueEvent(NewExpireHalfOpenRanUeEvt(ranNgapId))
+}
+
 // DeleteIKESecurityAssociation removes IKE SA for SPI
 func (n3iwfCtx *N3IWFContext) DeleteIKESecurityAssociation(spi uint64) {
 	n3iwfCtx.IkeSA.Delete(spi)
+	n3iwfCtx.PendingIkeSA.Delete(spi)
 }
 
 // IKESALoad returns IKE SA for SPI

@@ -290,13 +290,22 @@ func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 
 	printCause(cause)
 
+	if resetType == nil {
+		logger.NgapLog.Errorln("mandatory IE ResetType is missing")
+		return
+	}
+
 	switch resetType.Present {
 	case ngapType.ResetTypePresentNGInterface:
 		logger.NgapLog.Debugln("ResetType Present: NG Interface")
-		// TODO: Release Uu Interface related to this amf(IPSec)
-		// Remove all Ue
-		if err := amf.RemoveAllRelatedUe(); err != nil {
-			logger.NgapLog.Errorf("remove all related UE error: %+v", err)
+		// Retained released UEs are dropped too: the reset removes every UE-associated logical
+		// NG-connection, so the AMF may reuse their identifiers
+		n3iwfCtx.PurgeReleasedRanUesOfAmf(amf)
+		// Release the IPSec/IKE side and the RAN UE context of every UE served through this AMF
+		for _, relatedUe := range amf.RelatedUes() {
+			if err := releaseIkeUeAndRanUe(relatedUe); err != nil {
+				logger.NgapLog.Errorf("release UE error: %+v", err)
+			}
 		}
 		message.SendNGResetAcknowledge(amf, nil, nil)
 	case ngapType.ResetTypePresentPartOfNGInterface:
@@ -311,9 +320,19 @@ func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 		var ranUe context.RanUe
 
 		for _, ueAssociatedLogicalNGConnectionItem := range partOfNGInterface.List {
+			ranUe = nil // do not release the previous item's UE again
+			// Also forget a retained released UE the item names, whether or not a live UE exists
+			var ranId, amfId *int64
+			if item := ueAssociatedLogicalNGConnectionItem; item.RANUENGAPID != nil {
+				ranId = &item.RANUENGAPID.Value
+			}
+			if item := ueAssociatedLogicalNGConnectionItem; item.AMFUENGAPID != nil {
+				amfId = &item.AMFUENGAPID.Value
+			}
+			n3iwfCtx.PurgeReleasedRanUe(amf, ranId, amfId)
 			if ueAssociatedLogicalNGConnectionItem.RANUENGAPID != nil {
 				logger.NgapLog.Debugf("RanUeNgapID[%d]", ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
-				ranUe, _ = n3iwfCtx.RanUePoolLoad(ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
+				ranUe, _ = loadRanUeOfAmf(amf, ueAssociatedLogicalNGConnectionItem.RANUENGAPID.Value)
 			} else if ueAssociatedLogicalNGConnectionItem.AMFUENGAPID != nil {
 				logger.NgapLog.Debugf("AmfUeNgapID[%d]", ueAssociatedLogicalNGConnectionItem.AMFUENGAPID.Value)
 				ranUe = amf.FindUeByAmfUeNgapID(ueAssociatedLogicalNGConnectionItem.AMFUENGAPID.Value)
@@ -329,9 +348,8 @@ func HandleNGReset(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 				}
 				continue
 			}
-			// TODO: Release Uu Interface (IPSec)
-			if err := ranUe.Remove(); err != nil {
-				logger.NgapLog.Errorf("remove RanUE context error: %+v", err)
+			if err := releaseIkeUeAndRanUe(ranUe); err != nil {
+				logger.NgapLog.Errorf("release UE error: %+v", err)
 			}
 		}
 		message.SendNGResetAcknowledge(amf, partOfNGInterface, nil)
@@ -557,15 +575,16 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ranUeNgapID.Value)
 		if !ok {
+			reportReleasedRanUe(amf, ranUeNgapID.Value, amfUeNgapID.Value)
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
 		ranUeCtx = ranUe.GetSharedCtx()
-		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
+		if !acceptAmfUeNgapId(ranUeCtx, amfUeNgapID.Value) {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -650,7 +669,7 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 					ranUeCtx.TemporaryPDUSessionSetupData.UnactivatedPDUSession, pduSession)
 			} else {
 				// Delete the pdusession store in UE conext
-				delete(ranUeCtx.PduSessionList, pduSessionID)
+				ranUeCtx.DeletePDUSession(pduSessionID)
 				message.AppendPDUSessionResourceFailedToSetupListCxtRes(failedListCxtRes, pduSessionID, resTransfer)
 			}
 		}
@@ -697,7 +716,11 @@ func HandleInitialContextSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.NGAPP
 			return
 		}
 
-		n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAPSuccessMsgEvt(spi, securityKey.Value.Bytes, len(ranUeCtx.PduSessionList))
+		if securityKey == nil {
+			logger.NgapLog.Errorln("mandatory IE SecurityKey is missing")
+			return
+		}
+		n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAPSuccessMsgEvt(spi, securityKey.Value.Bytes, ranUeCtx.PDUSessionCount())
 	default:
 		logger.NgapLog.Errorf("unknown UE type: %T", ue)
 	}
@@ -978,15 +1001,16 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ranUeNgapID.Value)
 		if !ok {
+			reportReleasedRanUe(amf, ranUeNgapID.Value, amfUeNgapID.Value)
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
 		ranUeCtx = ranUe.GetSharedCtx()
-		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
+		if !acceptAmfUeNgapId(ranUeCtx, amfUeNgapID.Value) {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -1021,7 +1045,10 @@ func HandleUEContextModificationRequest(amf *context.N3IWFAMF, pdu *ngapType.NGA
 		return
 	}
 
-	n3iwfCtx.IkeServer.RcvEventCh <- context.NewIKEContextUpdateEvt(spi, securityKey.Value.Bytes) // Kn3iwf
+	// The Security Key IE is optional in UE Context Modification Request
+	if securityKey != nil {
+		n3iwfCtx.IkeServer.RcvEventCh <- context.NewIKEContextUpdateEvt(spi, securityKey.Value.Bytes) // Kn3iwf
+	}
 }
 
 func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
@@ -1080,7 +1107,7 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 	switch ueNgapIDs.Present {
 	case ngapType.UENGAPIDsPresentUENGAPIDPair:
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ueNgapIDs.UENGAPIDPair.RANUENGAPID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ueNgapIDs.UENGAPIDPair.RANUENGAPID.Value)
 		if !ok {
 			ranUe = amf.FindUeByAmfUeNgapID(ueNgapIDs.UENGAPIDPair.AMFUENGAPID.Value)
 		}
@@ -1093,7 +1120,36 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 	}
 
 	if ranUe == nil {
+		// The UE may have been released locally after this N3IWF sent a UE Context Release
+		// Request (e.g. an unauthenticated IKE SA expired); the AMF's command still has to be
+		// acknowledged.
+		var released *context.N3IWFRanUe
+		switch ueNgapIDs.Present {
+		case ngapType.UENGAPIDsPresentUENGAPIDPair:
+			pair := ueNgapIDs.UENGAPIDPair
+			// Both identifiers must match: acknowledging a different RAN UE than the one the
+			// AMF named would consume its retained state and report the wrong RAN UE NGAP ID.
+			released = n3iwfCtx.TakeReleasedRanUeByIdPair(amf, pair.RANUENGAPID.Value, pair.AMFUENGAPID.Value)
+		case ngapType.UENGAPIDsPresentAMFUENGAPID:
+			released = n3iwfCtx.TakeReleasedRanUeByAmfUeNgapId(amf, ueNgapIDs.AMFUENGAPID.Value)
+		}
+		if released != nil {
+			printCause(cause)
+			message.SendUEContextReleaseComplete(released, nil)
+			return
+		}
 		// TODO: send error indication(unknown local ngap ue id)
+		return
+	}
+
+	// When this command is the AMF's first UE-associated message for the UE, the pair supplies
+	// the AMF UE NGAP ID the UE does not have yet. It must be recorded before the UE Context
+	// Release Complete is built, as that message carries the AMF UE NGAP ID (mandatory).
+	if ueNgapIDs.Present == ngapType.UENGAPIDsPresentUENGAPIDPair &&
+		!acceptAmfUeNgapId(ranUe.GetSharedCtx(), ueNgapIDs.UENGAPIDPair.AMFUENGAPID.Value) {
+		// TODO: send error indication (inconsistent remote UE NGAP ID)
+		logger.NgapLog.Errorf("inconsistent remote UE NGAP ID, AMFUENGAPID: %d, RanUe.AmfUeNgapId: %d",
+			ueNgapIDs.UENGAPIDPair.AMFUENGAPID.Value, ranUe.GetSharedCtx().AmfUeNgapId)
 		return
 	}
 
@@ -1109,12 +1165,48 @@ func HandleUEContextReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU)
 	}
 }
 
+// loadRanUeOfAmf returns the RAN UE with ranUeNgapId if it is served by amf. A UE of another AMF,
+// like a missing one, is reported as not found: the RAN UE NGAP ID names a UE-associated logical
+// NG-connection on this AMF's NG interface only (TS 38.413 clause 10.6), so one AMF must not be
+// able to adopt, modify or release a UE that belongs to another AMF.
+func loadRanUeOfAmf(amf *context.N3IWFAMF, ranUeNgapId int64) (context.RanUe, bool) {
+	ranUe, ok := context.N3IWFSelf().RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		return nil, false
+	}
+	if ranUe.GetSharedCtx().AMF != amf {
+		logger.NgapLog.Warnf("RanUe[%d] is not served by AMF[%s]", ranUeNgapId, amfAddr(amf))
+		return nil, false
+	}
+	return ranUe, true
+}
+
+func amfAddr(amf *context.N3IWFAMF) string {
+	if amf == nil {
+		return ""
+	}
+	return amf.SCTPAddr
+}
+
+// acceptAmfUeNgapId reports whether id is consistent with the AMF UE NGAP ID of the UE. A UE
+// that has none yet takes id, because the first UE-associated message from the AMF assigns it
+// (TS 38.413 clause 10.6).
+func acceptAmfUeNgapId(ranUeCtx *context.RanUeSharedCtx, id int64) bool {
+	if ranUeCtx.AmfUeNgapId == context.AmfUeNgapIdUnspecified {
+		ranUeCtx.AmfUeNgapId = id
+		return true
+	}
+	return ranUeCtx.AmfUeNgapId == id
+}
+
 func releaseIkeUeAndRanUe(ranUe context.RanUe) error {
 	n3iwfCtx := context.N3IWFSelf()
 	ranUeNgapID := ranUe.GetSharedCtx().RanUeNgapId
 
 	if localSPI, ok := n3iwfCtx.IkeSpiLoad(ranUeNgapID); ok {
-		n3iwfCtx.IkeServer.RcvEventCh <- context.NewIKEDeleteRequestEvt(localSPI)
+		// Queued rather than sent: a bulk release (NG Reset) running in this loop must not
+		// block on a full IKE event channel while the IKE loop blocks on ours.
+		n3iwfCtx.IkeServer.QueueEvent(context.NewIKEDeleteRequestEvt(localSPI))
 	}
 
 	if err := ranUe.Remove(); err != nil {
@@ -1218,11 +1310,18 @@ func HandleDownlinkNASTransport(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 
 	if ranUeNgapID != nil {
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ranUeNgapID.Value)
 		if !ok {
+			if amfUeNgapID != nil {
+				reportReleasedRanUe(amf, ranUeNgapID.Value, amfUeNgapID.Value)
+			}
 			logger.NgapLog.Warnf("no UE Context[RanUeNgapID:%d]", ranUeNgapID.Value)
 			return
 		}
+	}
+	if ranUe == nil {
+		logger.NgapLog.Errorln("RANUENGAPID is missing from Downlink NAS Transport")
+		return
 	}
 	ranUeCtx := ranUe.GetSharedCtx()
 
@@ -1371,15 +1470,16 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ranUeNgapID.Value)
 		if !ok {
+			reportReleasedRanUe(amf, ranUeNgapID.Value, amfUeNgapID.Value)
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and handle error
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
 		ranUeCtx = ranUe.GetSharedCtx()
-		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
+		if !acceptAmfUeNgapId(ranUeCtx, amfUeNgapID.Value) {
 			// TODO: build cause and handle error
 			// Cause: Inconsistent remote UE NGAP ID
 			return
@@ -1452,7 +1552,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 				tempPDUSessionSetupData.UnactivatedPDUSession = append(tempPDUSessionSetupData.UnactivatedPDUSession, pduSession)
 			} else {
 				// Delete the pdusession store in UE conext
-				delete(ranUeCtx.PduSessionList, pduSessionID)
+				ranUeCtx.DeletePDUSession(pduSessionID)
 				message.AppendPDUSessionResourceFailedToSetupListSURes(failedListSURes, pduSessionID, resTransfer)
 			}
 		}
@@ -1466,7 +1566,7 @@ func HandlePDUSessionResourceSetupRequest(amf *context.N3IWFAMF, pdu *ngapType.N
 				logger.NgapLog.Errorf("cannot get SPI from ranNgapID: %+v", ranUeNgapID)
 				return
 			}
-			n3iwfCtx.IkeServer.RcvEventCh <- context.NewCreatePDUSessionEvt(spi, len(ue.PduSessionList), ue.TemporaryPDUSessionSetupData)
+			n3iwfCtx.IkeServer.RcvEventCh <- context.NewCreatePDUSessionEvt(spi, ue.PDUSessionCount(), ue.TemporaryPDUSessionSetupData)
 
 			// TS 23.501 4.12.5 Requested PDU Session Establishment via Untrusted non-3GPP Access
 			// After all IPsec Child SAs are established, the N3IWF shall forward to UE via the signalling IPsec SA
@@ -1493,8 +1593,6 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 	var iesCriticalityDiagnostics ngapType.CriticalityDiagnosticsIEList
 	var ranUe context.RanUe
 	var ranUeCtx *context.RanUeSharedCtx
-
-	n3iwfCtx := context.N3IWFSelf()
 
 	if pdu == nil {
 		logger.NgapLog.Errorln("NGAP Message is nil")
@@ -1551,19 +1649,25 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 	if (amfUeNgapID != nil) && (ranUeNgapID != nil) {
 		// Find UE context
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(ranUeNgapID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, ranUeNgapID.Value)
 		if !ok {
+			reportReleasedRanUe(amf, ranUeNgapID.Value, amfUeNgapID.Value)
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", ranUeNgapID.Value)
 			// TODO: build cause and send error indication
 			// Cause: Unknown local UE NGAP ID
 			return
 		}
 		ranUeCtx = ranUe.GetSharedCtx()
-		if ranUeCtx.AmfUeNgapId != amfUeNgapID.Value {
+		if !acceptAmfUeNgapId(ranUeCtx, amfUeNgapID.Value) {
 			// TODO: build cause and send error indication
 			// Cause: Inconsistent remote UE NGAP ID
 			return
 		}
+	}
+
+	if ranUeCtx == nil {
+		logger.NgapLog.Errorln("PDU Session Resource Modify Request: cannot identify the UE")
+		return
 	}
 
 	responseList := new(ngapType.PDUSessionResourceModifyListModRes)
@@ -1575,10 +1679,17 @@ func HandlePDUSessionResourceModifyRequest(amf *context.N3IWFAMF, pdu *ngapType.
 			// TODO: send NAS to UE
 			// pduSessionNasPdu := item.NASPDU
 			transfer := ngapType.PDUSessionResourceModifyRequestTransfer{}
-			err := aper.UnmarshalWithParams(item.PDUSessionResourceModifyRequestTransfer, transfer, "valueExt")
+			err := aper.UnmarshalWithParams(item.PDUSessionResourceModifyRequestTransfer, &transfer, "valueExt")
 			if err != nil {
 				logger.NgapLog.Errorf(
 					"[PDUSessionID: %d] PDUSessionResourceModifyRequestTransfer Decode Error: %+v", pduSessionID, err)
+				cause := message.BuildCause(ngapType.CausePresentProtocol, ngapType.CauseProtocolPresentTransferSyntaxError)
+				unsuccessfulTransfer, buildErr := message.BuildPDUSessionResourceModifyUnsuccessfulTransfer(*cause, nil)
+				if buildErr != nil {
+					logger.NgapLog.Errorf("build PDUSessionResourceModifyUnsuccessfulTransfer Error: %+v", buildErr)
+				}
+				message.AppendPDUSessionResourceFailedToModifyListModRes(failedListModRes, pduSessionID, unsuccessfulTransfer)
+				continue
 			}
 
 			if pduSession = ranUeCtx.FindPDUSession(pduSessionID); pduSession == nil {
@@ -1808,11 +1919,9 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 		}
 	}
 
-	n3iwfCtx := context.N3IWFSelf()
-
 	if rANUENGAPID != nil {
 		var ok bool
-		ranUe, ok = n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
+		ranUe, ok = loadRanUeOfAmf(amf, rANUENGAPID.Value)
 		if !ok {
 			logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
 			return
@@ -1822,7 +1931,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 
 	if aMFUENGAPID != nil {
 		if ranUe != nil {
-			if ranUeCtx.AmfUeNgapId != aMFUENGAPID.Value {
+			if !acceptAmfUeNgapId(ranUeCtx, aMFUENGAPID.Value) {
 				logger.NgapLog.Errorf("inconsistent remote UE NGAP ID, AMFUENGAPID: %d, RanUe.AmfUeNgapId: %d",
 					aMFUENGAPID.Value, ranUeCtx.AmfUeNgapId)
 				return
@@ -1845,8 +1954,8 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 		for _, item := range pDUSessionResourceModifyListModCfm.List {
 			pduSessionId := item.PDUSessionID.Value
 			logger.NgapLog.Debugf("PDU Session Id[%d] in Pdu Session Resource Modification Confrim List", pduSessionId)
-			sess, exist := ranUeCtx.PduSessionList[pduSessionId]
-			if !exist {
+			sess := ranUeCtx.FindPDUSession(pduSessionId)
+			if sess == nil {
 				logger.NgapLog.Warnf("PDU Session Id[%d] is not exist in Ue[ranUeNgapId:%d]", pduSessionId, ranUeCtx.RanUeNgapId)
 			} else {
 				transfer := ngapType.PDUSessionResourceModifyConfirmTransfer{}
@@ -1876,7 +1985,7 @@ func HandlePDUSessionResourceModifyConfirm(amf *context.N3IWFAMF, pdu *ngapType.
 				printCause(&transfer.Cause)
 			}
 			logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Modify Indication Unsuccessful", pduSessionId)
-			delete(ranUeCtx.PduSessionList, pduSessionId)
+			ranUeCtx.DeletePDUSession(pduSessionId)
 		}
 	}
 
@@ -1963,8 +2072,11 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 	}
 
 	n3iwfCtx := context.N3IWFSelf()
-	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
+	ranUe, ok := loadRanUeOfAmf(amf, rANUENGAPID.Value)
 	if !ok {
+		if reportReleasedRanUe(amf, rANUENGAPID.Value, aMFUENGAPID.Value) {
+			return
+		}
 		logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
 		cause := message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
 		message.SendErrorIndication(amf, nil, nil, cause, nil)
@@ -1972,7 +2084,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 	}
 	ranUeCtx := ranUe.GetSharedCtx()
 
-	if ranUeCtx.AmfUeNgapId != aMFUENGAPID.Value {
+	if !acceptAmfUeNgapId(ranUeCtx, aMFUENGAPID.Value) {
 		logger.NgapLog.Errorf("inconsistent remote UE NGAP ID, AMFUENGAPID: %d, RanUe.AmfUeNgapId: %d",
 			aMFUENGAPID.Value, ranUeCtx.AmfUeNgapId)
 		cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
@@ -1997,7 +2109,7 @@ func HandlePDUSessionResourceReleaseCommand(amf *context.N3IWFAMF, pdu *ngapType
 			printCause(&transfer.Cause)
 		}
 		logger.NgapLog.Debugf("release PDU Session Id[%d] due to PDU Session Resource Release Command", pduSessionId)
-		delete(ranUeCtx.PduSessionList, pduSessionId)
+		ranUeCtx.DeletePDUSession(pduSessionId)
 
 		// response list
 		releaseItem := ngapType.PDUSessionResourceReleasedItemRelRes{
@@ -2090,20 +2202,27 @@ func HandleErrorIndication(amf *context.N3IWFAMF, pdu *ngapType.NGAPPDU) {
 		printCriticalityDiagnostics(criticalityDiagnostics)
 	}
 
-	n3iwfCtx := context.N3IWFSelf()
-	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
-	if ok {
-		err := releaseIkeUeAndRanUe(ranUe)
-		if err != nil {
-			logger.NgapLog.Warnf("handle error indication: %v", err)
+	if aMFUENGAPID == nil && rANUENGAPID == nil {
+		// A non-UE-associated Error Indication does not concern any UE
+		return
+	}
+
+	var released context.RanUe
+	if rANUENGAPID != nil {
+		if ranUe, ok := loadRanUeOfAmf(amf, rANUENGAPID.Value); ok {
+			released = ranUe
+			if err := releaseIkeUeAndRanUe(ranUe); err != nil {
+				logger.NgapLog.Warnf("handle error indication: %v", err)
+			}
 		}
 	}
 
-	ranUe = amf.FindUeByAmfUeNgapID(aMFUENGAPID.Value)
-	if ranUe != nil {
-		err := releaseIkeUeAndRanUe(ranUe)
-		if err != nil {
-			logger.NgapLog.Warnf("handle error indication: %v", err)
+	if aMFUENGAPID != nil {
+		ranUe := amf.FindUeByAmfUeNgapID(aMFUENGAPID.Value)
+		if ranUe != nil && ranUe != released {
+			if err := releaseIkeUeAndRanUe(ranUe); err != nil {
+				logger.NgapLog.Warnf("handle error indication: %v", err)
+			}
 		}
 	}
 
@@ -2173,9 +2292,11 @@ func HandleUERadioCapabilityCheckRequest(amf *context.N3IWFAMF, pdu *ngapType.NG
 		return
 	}
 
-	n3iwfCtx := context.N3IWFSelf()
-	ranUe, ok := n3iwfCtx.RanUePoolLoad(rANUENGAPID.Value)
+	ranUe, ok := loadRanUeOfAmf(amf, rANUENGAPID.Value)
 	if !ok {
+		if reportReleasedRanUe(amf, rANUENGAPID.Value, aMFUENGAPID.Value) {
+			return
+		}
 		logger.NgapLog.Errorf("unknown local UE NGAP ID. RanUENGAPID: %d", rANUENGAPID.Value)
 		cause := message.BuildCause(ngapType.CausePresentRadioNetwork, ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
 		message.SendErrorIndication(amf, nil, nil, cause, nil)
@@ -2642,6 +2763,8 @@ func HandleEvent(ngapEvent context.NgapEvt) {
 		HandleSendUplinkNASTransport(ngapEvent)
 	case context.SendInitialContextSetupResponse:
 		HandleSendInitialContextSetupResponse(ngapEvent)
+	case context.ExpireHalfOpenRanUe:
+		HandleExpireHalfOpenRanUe(ngapEvent)
 	default:
 		logger.NgapLog.Errorf("undefined NGAP event type")
 		return
@@ -2730,6 +2853,15 @@ func HandleUnmarshalEAP5GData(ngapEvent context.NgapEvt) {
 			}
 		}
 
+		// Allocation is idempotent per IKE SA: a retransmitted or duplicated initial EAP-5G
+		// response, processed before IKE attaches the UE, must not allocate a second RAN UE
+		// (the SPI mapping would only track one and the other would never be reclaimed).
+		if existingRanUeNgapId, exists := n3iwfCtx.NgapIdLoad(spi); exists {
+			logger.NgapLog.Warnf("RanUE[%d] already allocated for IKE SPI %016x, ignoring duplicate initial EAP-5G message",
+				existingRanUeNgapId, spi)
+			return
+		}
+
 		selectedAMF := n3iwfCtx.AMFSelection(anParameters.GUAMI, anParameters.SelectedPLMNID)
 		if selectedAMF == nil {
 			n3iwfCtx.IkeServer.RcvEventCh <- context.NewSendEAP5GFailureMsgEvt(spi, context.ErrAMFSelection)
@@ -2741,6 +2873,13 @@ func HandleUnmarshalEAP5GData(ngapEvent context.NgapEvt) {
 				return
 			}
 			n3iwfUe.AMF = selectedAMF
+			selectedAMF.AttachRanUe(n3iwfUe)
+			// Record the SPI<->NgapId mapping as soon as the RAN UE exists, before the
+			// response is even sent to the IKE event loop, so an IKE SA that expires
+			// before completing authentication can find and release this RAN UE even
+			// if HandleUnmarshalEAP5GDataResponse never runs (e.g. this function
+			// returns early below, or the event is still in flight).
+			n3iwfCtx.IkeSpiNgapIdMapping(spi, n3iwfUe.RanUeNgapId)
 			if anParameters.EstablishmentCause != nil {
 				value := uint64(anParameters.EstablishmentCause.Value)
 				if value > uint64(math.MaxInt16) {
@@ -3002,6 +3141,91 @@ func HandleSendUEContextReleaseRequest(ngapEvent context.NgapEvt) {
 	}
 
 	message.SendUEContextReleaseRequest(ranUe, *cause)
+}
+
+// reportReleasedRanUe handles a message from the AMF that names a RAN UE which was released
+// locally before the AMF had assigned it an AMF UE NGAP ID (so no UE Context Release Request
+// could be sent then). The RAN UE NGAP ID is unknown here, so as TS 38.413 clause 10.6 requires
+// for a first returned message with an unknown local AP ID, an Error Indication carrying both
+// received AP IDs is sent, after which both nodes release the UE-associated logical
+// NG-connection locally. It returns true if the UE was such a released UE and an Error
+// Indication was therefore attempted. The retained state is dropped; no Release Command is expected.
+func reportReleasedRanUe(amf *context.N3IWFAMF, ranUeNgapId, amfUeNgapId int64) bool {
+	if amf == nil || context.N3IWFSelf().TakeReleasedRanUeAwaitingAmfUeNgapId(amf, ranUeNgapId) == nil {
+		return false
+	}
+	logger.NgapLog.Infof("AMF responded for released RanUe[%d], reporting unknown local UE NGAP ID (AmfUeNgapId[%d])",
+		ranUeNgapId, amfUeNgapId)
+	cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
+		ngapType.CauseRadioNetworkPresentUnknownLocalUENGAPID)
+	pkt, err := message.BuildErrorIndication(&amfUeNgapId, &ranUeNgapId, cause, nil)
+	if err != nil {
+		logger.NgapLog.Errorf("build Error Indication failed: %+v", err)
+		return true
+	}
+	// SCTP writes have no deadline; the bounded per-AMF writer keeps a stalled AMF socket from
+	// blocking the NGAP loop or accumulating goroutines.
+	logger.NgapLog.Infoln("send Error Indication")
+	amf.QueueSend(pkt)
+	return true
+}
+
+// HandleExpireHalfOpenRanUe releases a RAN UE allocated for an IKE SA that timed out, or
+// was removed, before completing authentication. The AMF is notified on a best-effort
+// basis, but the RAN UE is removed locally regardless of whether or how the AMF responds,
+// so an unauthenticated peer cannot occupy local/AMF state beyond the half-open limit.
+func HandleExpireHalfOpenRanUe(ngapEvent context.NgapEvt) {
+	logger.NgapLog.Debugln("handle ExpireHalfOpenRanUe Event")
+
+	evt := ngapEvent.(*context.ExpireHalfOpenRanUeEvt)
+	ranUeNgapId := evt.RanUeNgapId
+
+	n3iwfCtx := context.N3IWFSelf()
+	ranUe, ok := n3iwfCtx.RanUePoolLoad(ranUeNgapId)
+	if !ok {
+		logger.NgapLog.Debugf("half-open RanUe[%d] already removed", ranUeNgapId)
+		return
+	}
+
+	// The request is built before the UE is removed, because it reads the UE's context
+	// (PDU sessions). It is only sent if the AMF has assigned an AMF UE NGAP ID.
+	// Without an ID there is nothing to request; a UE the AMF knows is still retained below
+	// so a Release Command carrying the (RAN, AMF) pair can be acknowledged.
+	var releaseRequest []byte
+	if ranUe.GetSharedCtx().AmfUeNgapId != context.AmfUeNgapIdUnspecified {
+		cause := message.BuildCause(ngapType.CausePresentRadioNetwork,
+			ngapType.CauseRadioNetworkPresentRadioConnectionWithUeLost)
+		pkt, err := message.BuildUEContextReleaseRequest(ranUe, *cause)
+		if err != nil {
+			logger.NgapLog.Errorf("build UE Context Release Request failed: %+v", err)
+		} else {
+			releaseRequest = pkt
+		}
+	}
+	amf := ranUe.GetSharedCtx().AMF
+
+	// Free the resources first, but keep the identifiers of a UE the AMF knows for a bounded time:
+	// the AMF answers the request with a UE Context Release Command, which can only be
+	// acknowledged if the UE can still be identified.
+	// A UE whose Initial UE Message was never sent is unknown to the AMF, so no Release Command or
+	// other message can name it: retaining it would only occupy a slot that a UE the AMF does
+	// know needs. The UE's address, set when the Initial UE Message is sent, tells the two apart;
+	// it is also needed for the User Location Information of the Release Complete.
+	if sharedCtx := ranUe.GetSharedCtx(); sharedCtx.AMF != nil && (sharedCtx.IPAddrv4 != "" || sharedCtx.IPAddrv6 != "") {
+		n3iwfCtx.RememberReleasedRanUe(ranUe)
+	}
+	if err := ranUe.Remove(); err != nil {
+		logger.NgapLog.Errorf("expire half-open RanUe[%d]: %v", ranUeNgapId, err)
+	}
+
+	if releaseRequest != nil {
+		logger.NgapLog.Infoln("send UE Context Release Request")
+		// SCTP writes have no deadline; a stalled AMF socket must not block this loop and with
+		// it the reclamation of later expired UEs. The per-AMF writer bounds the backlog.
+		if amf != nil {
+			amf.QueueSend(releaseRequest)
+		}
+	}
 }
 
 func HandleSendUEContextReleaseComplete(ngapEvent context.NgapEvt) {
