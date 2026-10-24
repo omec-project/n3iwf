@@ -46,6 +46,7 @@ type IkeMsgTemporaryData struct {
 type IKESecurityAssociation struct {
 	CreatedAt            time.Time
 	RemoteIP             string // source address of the IKE_SA_INIT request
+	CookieVerified       bool   // the IKE_SA_INIT request carried a valid COOKIE, so RemoteIP is not spoofed
 	IKESAClosedCh        chan struct{}
 	IKEConnection        *UDPSocketInfo
 	IkeUE                *N3IWFIkeUe

@@ -23,9 +23,9 @@ const (
 	defaultHalfOpenIKESATimeout  = 180 * time.Second
 	halfOpenIKESACookieThreshold = 256
 	halfOpenIKESALimit           = 1024
-	// halfOpenIKESAPerSourceLimit bounds the pending IKE SAs one source address may hold. The
-	// cookie only proves that the source can receive replies, so a reachable host could otherwise
-	// fill the global limit and keep every other UE out.
+	// halfOpenIKESAPerSourceLimit bounds the cookie-verified pending IKE SAs one source address may
+	// hold. The cookie only proves that the source can receive replies, so a reachable host could
+	// otherwise fill the global limit and keep every other UE out.
 	halfOpenIKESAPerSourceLimit = 32
 	// preAuthIKESATimeout bounds an IKE SA that has not started IKE_AUTH. A UE sends IKE_AUTH
 	// right after the IKE_SA_INIT response, so the long half-open timeout, which covers the whole
@@ -48,7 +48,7 @@ func ExpireHalfOpenIKESAs() {
 }
 
 // halfOpenIKESAStats expires timed-out pending IKE SAs and returns the number of pending IKE
-// SAs, in total and for remoteIP
+// SAs, in total and those from remoteIP that were admitted with a valid COOKIE
 func halfOpenIKESAStats(remoteIP string) (total, fromRemote int) {
 	maxAge := halfOpenIKESATimeout()
 	return context.N3IWFSelf().HalfOpenIKESACount(maxAge, min(maxAge, preAuthIKESATimeout), remoteIP)

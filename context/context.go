@@ -300,8 +300,9 @@ func (n3iwfCtx *N3IWFContext) IsIKESAPending(spi uint64) bool {
 }
 
 // HalfOpenIKESACount removes pending IKE SAs that timed out and returns the number of pending
-// IKE SAs that remain, in total and the share whose IKE_SA_INIT came from remoteIP (empty
-// matches none). A pending SA times out after maxAge, or after preAuthMaxAge while it has not
+// IKE SAs that remain, in total and the share whose IKE_SA_INIT came from remoteIP with a valid
+// COOKIE (an unverified source address may be spoofed, so it is not counted against remoteIP;
+// an empty remoteIP matches none). A pending SA times out after maxAge, or after preAuthMaxAge while it has not
 // started IKE_AUTH (State is still zero). An IKE SA is pending from creation until peer AUTH is
 // verified (MarkIKESAAuthenticated), regardless of whether an EAP-5G exchange has already
 // attached a UE to it; a timed-out SA with an attached UE has that UE released too, so it
@@ -321,7 +322,7 @@ func (n3iwfCtx *N3IWFContext) HalfOpenIKESACount(
 			return true
 		}
 		total++
-		if remoteIP != "" && sa.RemoteIP == remoteIP {
+		if remoteIP != "" && sa.CookieVerified && sa.RemoteIP == remoteIP {
 			fromRemote++
 		}
 		return true

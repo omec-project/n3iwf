@@ -161,7 +161,7 @@ func TestHalfOpenIKESACountPerSourceAndPreAuthTimeout(t *testing.T) {
 	n3iwfCtx := &N3IWFContext{}
 	now := time.Now()
 	add := func(spi uint64, ip string, age time.Duration, state uint8) {
-		sa := &IKESecurityAssociation{CreatedAt: now.Add(-age), RemoteIP: ip, State: state, LocalSPI: spi}
+		sa := &IKESecurityAssociation{CreatedAt: now.Add(-age), RemoteIP: ip, State: state, LocalSPI: spi, CookieVerified: true}
 		n3iwfCtx.IkeSA.Store(spi, sa)
 		n3iwfCtx.PendingIkeSA.Store(spi, sa)
 	}
@@ -171,10 +171,14 @@ func TestHalfOpenIKESACountPerSourceAndPreAuthTimeout(t *testing.T) {
 	add(4, "10.0.0.1", time.Minute, 0) // never started IKE_AUTH: pre-AUTH timeout
 	add(5, "10.0.0.1", time.Minute, 1) // in registration: still within the long timeout
 	add(6, "10.0.0.1", 10*time.Minute, 1)
+	// Admitted without a cookie: the address may be spoofed, so it is not charged to the source
+	unverified := &IKESecurityAssociation{CreatedAt: now, RemoteIP: "10.0.0.1", LocalSPI: 7}
+	n3iwfCtx.IkeSA.Store(uint64(7), unverified)
+	n3iwfCtx.PendingIkeSA.Store(uint64(7), unverified)
 
 	total, fromSource := n3iwfCtx.HalfOpenIKESACount(5*time.Minute, 30*time.Second, "10.0.0.1")
-	if total != 4 || fromSource != 3 {
-		t.Fatalf("total, fromSource = %d, %d; want 4, 3", total, fromSource)
+	if total != 5 || fromSource != 3 {
+		t.Fatalf("total, fromSource = %d, %d; want 5, 3", total, fromSource)
 	}
 	for _, spi := range []uint64{4, 6} {
 		if n3iwfCtx.IsIKESAPending(spi) {

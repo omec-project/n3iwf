@@ -125,15 +125,24 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 		logger.IKELog.Debugf("too many half-open IKE SAs (%d), dropping IKE_SA_INIT", halfOpen)
 		return
 	}
-	if fromSource >= halfOpenIKESAPerSourceLimit {
-		logger.IKELog.Debugf("too many half-open IKE SAs (%d) from %s, dropping IKE_SA_INIT", fromSource, ueAddr.IP)
-		return
-	}
-	if halfOpen >= halfOpenIKESACookieThreshold && !hasValidCookie(ikeMsg.Payloads, nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI) {
-		logger.IKELog.Debugf("%d half-open IKE SAs, requesting COOKIE", halfOpen)
-		sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
-			ikeMsg.MessageID, message.COOKIE, newCookie(nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI))
-		return
+	// The per-source budget is charged only to requests that proved the source can receive
+	// replies (a valid COOKIE). A UDP source address is otherwise spoofable, and charging it
+	// would let a burst claiming a UE's address use up that address's slots and keep the real UE
+	// out. Until the COOKIE threshold is reached, requests are admitted unverified, bounded by
+	// that threshold and the pre-AUTH timeout.
+	cookieVerified := false
+	if halfOpen >= halfOpenIKESACookieThreshold {
+		if !hasValidCookie(ikeMsg.Payloads, nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI) {
+			logger.IKELog.Debugf("%d half-open IKE SAs, requesting COOKIE", halfOpen)
+			sendErrorResponse(udpConn, n3iwfAddr, ueAddr, ikeMsg.InitiatorSPI, ikeMsg.ResponderSPI,
+				ikeMsg.MessageID, message.COOKIE, newCookie(nonce.NonceData, ueAddr, ikeMsg.InitiatorSPI))
+			return
+		}
+		if fromSource >= halfOpenIKESAPerSourceLimit {
+			logger.IKELog.Debugf("too many half-open IKE SAs (%d) from %s, dropping IKE_SA_INIT", fromSource, ueAddr.IP)
+			return
+		}
+		cookieVerified = true
 	}
 
 	localNonceBigInt, err := security.GenerateRandomNumber()
@@ -165,6 +174,7 @@ func HandleIKESAINIT(udpConn *net.UDPConn, n3iwfAddr, ueAddr *net.UDPAddr, ikeMs
 	}()
 	ikeSecurityAssociation.RemoteSPI = ikeMsg.InitiatorSPI
 	ikeSecurityAssociation.RemoteIP = ueAddr.IP.String()
+	ikeSecurityAssociation.CookieVerified = cookieVerified
 	ikeSecurityAssociation.InitiatorMessageID = ikeMsg.MessageID
 
 	ikeSecurityAssociation.IKESAKey, localPublicValue, err = security.NewIKESAKey(chooseProposal[0], keyExcahge.KeyExchangeData, concatenatedNonce, ikeSecurityAssociation.RemoteSPI, ikeSecurityAssociation.LocalSPI)
