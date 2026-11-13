@@ -37,5 +37,10 @@ RUN apk add --no-cache bash && \
         apk add --no-cache vim nano tcpdump strace net-tools curl netcat-openbsd bind-tools; \
     fi
 
+# Run as an unprivileged user
+RUN addgroup -S -g 1000 aether && adduser -S -u 1000 -G aether aether
+
 # Copy executable
-COPY --from=builder /go/src/n3iwf/bin/* /usr/local/bin/.
+COPY --chmod=755 --from=builder /go/src/n3iwf/bin/* /usr/local/bin/.
+
+USER 1000:1000
