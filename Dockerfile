@@ -37,5 +37,21 @@ RUN apk add --no-cache bash && \
         apk add --no-cache vim nano tcpdump strace net-tools curl netcat-openbsd bind-tools; \
     fi
 
+# Run as an unprivileged user
+RUN addgroup -S -g 1000 aether && adduser -S -u 1000 -G aether aether
+
 # Copy executable
-COPY --from=builder /go/src/n3iwf/bin/* /usr/local/bin/.
+COPY --chmod=755 --from=builder /go/src/n3iwf/bin/* /usr/local/bin/.
+
+# The non-root user needs file capabilities on the binary:
+#   CAP_NET_ADMIN        create the XFRM interface and manage IPsec SAs/policies (netlink)
+#   CAP_NET_RAW          GRE listener (ip4:gre) and raw IP socket
+#   CAP_NET_BIND_SERVICE bind IKE UDP port 500
+# They only take effect if they are in the container's bounding set, so the
+# container must still be started with --cap-add NET_ADMIN (docker) or
+# securityContext.capabilities.add: [NET_ADMIN] (Kubernetes).
+RUN apk add --no-cache libcap-setcap && \
+    setcap cap_net_admin,cap_net_raw,cap_net_bind_service=+ep /usr/local/bin/n3iwf && \
+    apk del libcap-setcap
+
+USER 1000:1000
