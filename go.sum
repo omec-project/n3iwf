@@ -47,8 +47,8 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/omec-project/ngap/v2 v2.1.11 h1:F07k4UHSNDDLl3p0OjxcKvo+1sPByCpETBwoPVMuuAg=
 github.com/omec-project/ngap/v2 v2.1.11/go.mod h1:PKvE3nW/LtqIUtZKVZT1NhUUs7ncQ7sB2BniHKcordA=
-github.com/omec-project/util v1.10.2 h1:wfcgiirq0GsjtC+/7aam98kneMH2TOmkCzvpd6U+s4I=
-github.com/omec-project/util v1.10.2/go.mod h1:1LtB8Uo9zNy9gaybMdLT67UO9KdGIZIVEmcj0I23TP8=
+github.com/omec-project/util v1.10.3 h1:NoxnHgwPiawHk9d+mx9OLUqIiRIySLqdLZTARY1Vkog=
+github.com/omec-project/util v1.10.3/go.mod h1:wzyVrpyMHcUuQpqQ4hTk7t0P/PzXq8vjpS3qWOadWmY=
 github.com/pascaldekloe/goe v0.1.1 h1:Ah6WQ56rZONR3RW3qWa2NCZ6JAVvSpUcoLBaOmYFt9Q=
 github.com/pascaldekloe/goe v0.1.1/go.mod h1:KSyfaxQOh0HZPjDP1FL/kFtbqYqrALJTaMafFUIccqU=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
@@ -83,8 +83,8 @@ github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zd
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/wmnsk/go-gtp v0.8.12 h1:89Xn0q8LTwNP3fYYwZPWVSOuWc7peJrYWWCN9zf6nlM=
 github.com/wmnsk/go-gtp v0.8.12/go.mod h1:ha5DO5jAVVP/2hwrJN5+m1PWOarRusrhduXrAFSPIAE=
-go.mongodb.org/mongo-driver/v2 v2.10.0 h1:BYJLuVSu3/xDvToG+VQyoTPS+jxq9tuQDf+1nAlFKSE=
-go.mongodb.org/mongo-driver/v2 v2.10.0/go.mod h1:PxPyIAlsI1jkYZvUNfTr++ggyBP+RSaxHYctt6TcZc4=
+go.mongodb.org/mongo-driver/v2 v2.10.1 h1:FScYVU+0h/zERnvYemJix3ZDgeU2QGmC8EuXLSWLdf8=
+go.mongodb.org/mongo-driver/v2 v2.10.1/go.mod h1:PxPyIAlsI1jkYZvUNfTr++ggyBP+RSaxHYctt6TcZc4=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/mock v0.6.0 h1:hyF9dfmbgIX5EfOdasqLsWD6xqpNZlXblLB/Dbnwv3Y=
